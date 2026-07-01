@@ -14,6 +14,10 @@ no separate "extract" step — and gives you:
 Built for and tested against the **LATAM client** (`C:\Gravity\Ragnarok`), but
 the parsers cover every GRF/format version found in modern and classic clients.
 
+<p align="center">
+  <img src="docs/prontera.png" width="90%" alt="Prontera exported to glTF and rendered in Blender" />
+</p>
+
 > **Learning project.** ragx ships **no game data** and is for studying the
 > Ragnarok Online file formats with a client you legally own. Ragnarok Online
 > and all of its assets are © **Gravity Co., Ltd.** — see
@@ -21,8 +25,32 @@ the parsers cover every GRF/format version found in modern and classic clients.
 
 ---
 
+## Showcase
+
+Maps converted straight from the client `data.grf` and rendered in Blender
+(Workbench) — geometry, textures, placement, normals and looping animations,
+with no manual cleanup:
+
+<p align="center">
+  <img src="docs/prontera_orbit.gif" width="49%" alt="Prontera turntable" />
+  <img src="docs/payon_orbit.gif" width="49%" alt="Payon turntable" />
+</p>
+
+<p align="center">
+  <img src="docs/geffen.png" width="49%" alt="Geffen — studio-lit, showing the model normals" />
+  <img src="docs/payon.png" width="49%" alt="Payon" />
+</p>
+
+<sub>Prontera &amp; Payon turntables; Geffen studio-lit (exercising the model
+normals) and Payon textured. Regenerate with
+<a href="tools/render_showcase.py"><code>tools/render_showcase.py</code></a>.
+All assets © Gravity Co., Ltd.</sub>
+
+---
+
 ## Contents
 
+- [Showcase](#showcase)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Quick start](#quick-start)
