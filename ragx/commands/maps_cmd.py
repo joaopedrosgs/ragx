@@ -1,4 +1,4 @@
-"""``ragx gltf`` — convert Ragnarok maps to glTF 2.0.
+"""``ragx maps`` — convert Ragnarok maps to glTF 2.0.
 
 Output (default ``gltf`` format) is ``<out>/maps/<map>.gltf`` + ``<map>.bin``
 with every texture written once into a shared ``<out>/maps/textures/`` folder

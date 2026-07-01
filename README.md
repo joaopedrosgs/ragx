@@ -6,7 +6,7 @@ no separate "extract" step — and gives you:
 
 | Command | What it does | Output |
 |---|---|---|
-| `ragx gltf` | maps & models → **glTF 2.0** | `.gltf` + `.bin` (+ shared `textures/`), or `.glb` |
+| `ragx maps` | maps & models → **glTF 2.0** | `.gltf` + `.bin` (+ shared `textures/`), or `.glb` |
 | `ragx sprites` | SPR/ACT sprites → **spritesheet + animation** | packed `.png` + `.json` |
 | `ragx effects` | STR skill / visual effects ("spells") → **atlas + keyframes** | packed `.png` + `.json` |
 | `ragx ui` | interface bitmaps → **transparent PNG** | magenta-keyed `.png` + theme textures |
@@ -28,7 +28,7 @@ the parsers cover every GRF/format version found in modern and classic clients.
 - [Quick start](#quick-start)
 - [Command reference](#command-reference) — every option of every command
   - [Common options](#common-options)
-  - [`ragx gltf`](#ragx-gltf)
+  - [`ragx maps`](#ragx-maps)
   - [`ragx sprites`](#ragx-sprites)
   - [`ragx effects`](#ragx-effects)
   - [`ragx ui`](#ragx-ui)
@@ -69,11 +69,11 @@ python -m ragx --help
 
 ```sh
 # Maps → glTF
-ragx gltf prontera                       # one map  → ragx_out/maps/prontera.gltf
-ragx gltf prontera izlude geffen -j 8     # several maps, 8 worker processes
-ragx gltf --all -j 8                      # every map in the client
-ragx gltf prontera --format glb           # single self-contained .glb
-ragx gltf --list                          # just print every available map name
+ragx maps prontera                       # one map  → ragx_out/maps/prontera.gltf
+ragx maps prontera izlude geffen -j 8     # several maps, 8 worker processes
+ragx maps --all -j 8                      # every map in the client
+ragx maps prontera --format glb           # single self-contained .glb
+ragx maps --list                          # just print every available map name
 
 # Sprites → spritesheet + animation JSON
 ragx sprites 몬스터/poring                 # one sprite (path under data/sprite/)
@@ -88,7 +88,7 @@ ragx ui                                   # base interface
 ragx ui --skin "America Latina"           # overlay a named client skin
 
 # Point at a client installed somewhere else
-ragx gltf prontera --client "D:/Games/RO" -o D:/ro_export
+ragx maps prontera --client "D:/Games/RO" -o D:/ro_export
 ```
 
 ---
@@ -101,7 +101,7 @@ ragx [-h] [--version] <command> [options]
 
 | Top-level option | Description |
 |---|---|
-| `-h`, `--help` | show help and exit (works on every command, e.g. `ragx gltf --help`) |
+| `-h`, `--help` | show help and exit (works on every command, e.g. `ragx maps --help`) |
 | `--version` | print the ragx version and exit |
 
 ### Common options
@@ -114,12 +114,12 @@ Every command accepts these:
 | `-o`, `--out DIR` | `./ragx_out` | output root; each command writes its own sub-folder (`maps/`, `sprites/`, `effects/`, `ui/`) under it |
 | `-h`, `--help` | — | show this command's help and exit |
 
-### `ragx gltf`
+### `ragx maps`
 
 Convert maps and their models to glTF 2.0.
 
 ```
-ragx gltf [MAP ...] [--all] [-f {gltf,glb}] [-j N] [--list] [common options]
+ragx maps [MAP ...] [--all] [-f {gltf,glb}] [-j N] [--list] [common options]
 ```
 
 | Argument / option | Default | Description |
@@ -133,11 +133,11 @@ ragx gltf [MAP ...] [--all] [-f {gltf,glb}] [-j N] [--list] [common options]
 **Examples**
 
 ```sh
-ragx gltf prontera                        # → ragx_out/maps/prontera.gltf (+ .bin, textures/)
-ragx gltf prontera izlude payon -j 4      # convert three maps in parallel
-ragx gltf --all -j 8                      # whole world
-ragx gltf geffen --format glb             # → ragx_out/maps/geffen.glb (single file)
-ragx gltf --list | findstr prt            # find every "prt*" map (Windows)
+ragx maps prontera                        # → ragx_out/maps/prontera.gltf (+ .bin, textures/)
+ragx maps prontera izlude payon -j 4      # convert three maps in parallel
+ragx maps --all -j 8                      # whole world
+ragx maps geffen --format glb             # → ragx_out/maps/geffen.glb (single file)
+ragx maps --list | findstr prt            # find every "prt*" map (Windows)
 ```
 
 ### `ragx sprites`

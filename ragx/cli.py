@@ -3,7 +3,7 @@
     ragx <command> [options]
 
 Commands
-    gltf      convert maps / models to glTF 2.0
+    maps      convert maps / models to glTF 2.0
     sprites   export SPR/ACT sprites to spritesheet PNG + JSON
     effects   export STR skill/visual effects to atlas PNG + JSON
     ui        export interface bitmaps to transparent PNG
@@ -23,7 +23,7 @@ from .client import DEFAULT_CLIENT
 
 # Per-command logic module; imported only when that command runs.
 _MODULES = {
-    "gltf": "ragx.commands.gltf_cmd",
+    "maps": "ragx.commands.maps_cmd",
     "sprites": "ragx.commands.sprites_cmd",
     "effects": "ragx.commands.effects_cmd",
     "ui": "ragx.commands.ui_cmd",
@@ -52,8 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  ragx gltf prontera\n"
-            "  ragx gltf --all -j 8 --format glb\n"
+            "  ragx maps prontera\n"
+            "  ragx maps --all -j 8 --format glb\n"
             "  ragx sprites 몬스터/poring\n"
             "  ragx sprites --all -j 8\n"
             "  ragx effects lord stormgust\n"
@@ -66,9 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
     common = _common_parent()
     sub = parser.add_subparsers(dest="command", metavar="<command>", required=True)
 
-    # --- gltf -------------------------------------------------------------
+    # --- maps -------------------------------------------------------------
     p = sub.add_parser(
-        "gltf", parents=[common],
+        "maps", parents=[common],
         help="convert maps / models to glTF 2.0",
         description="Convert Ragnarok maps to glTF 2.0. Output goes to "
                     "<out>/maps/<map>.gltf (+ .bin) with textures shared in "
@@ -79,7 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true",
                    help="convert every map in the client")
     p.add_argument("-f", "--format", choices=("gltf", "glb"), default="gltf",
-                   help="gltf = .bin + shared textures/ (default); glb = single file")
+                   help="output format: gltf = .bin + shared textures/ (default); "
+                        "glb = single self-contained file")
     p.add_argument("-j", "--processes", type=int, default=1, metavar="N",
                    help="parallel worker processes (default: 1)")
     p.add_argument("--list", action="store_true",
