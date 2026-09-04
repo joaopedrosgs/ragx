@@ -147,7 +147,7 @@ Every command accepts these:
 Convert maps and their models to glTF 2.0.
 
 ```
-ragx maps [MAP ...] [--all] [-f {gltf,glb}] [-j N] [--list] [common options]
+ragx maps [MAP ...] [--all] [-f {gltf,glb}] [-j N] [--world-scale FACTOR] [--list] [common options]
 ```
 
 | Argument / option | Default | Description |
@@ -156,6 +156,7 @@ ragx maps [MAP ...] [--all] [-f {gltf,glb}] [-j N] [--list] [common options]
 | `--all` | off | convert **every** map in the client (hundreds; slow to convert) |
 | `-f`, `--format {gltf,glb}` | `gltf` | `gltf` = `.gltf` + `.bin` with a shared `textures/` folder (smallest across many maps); `glb` = one self-contained binary file per map |
 | `-j`, `--processes N` | `1` | number of parallel worker processes |
+| `--world-scale FACTOR` | `1.0` | bake every exported position, translation, and world-space length by this positive factor; normals and rotations stay unchanged |
 | `--list` | off | print every available map name and exit (no conversion) |
 
 **Examples**
@@ -165,6 +166,7 @@ ragx maps prontera                        # → ragx_out/maps/prontera.gltf (+ .
 ragx maps prontera izlude payon -j 4      # convert three maps in parallel
 ragx maps --all -j 8                      # whole world
 ragx maps geffen --format glb             # → ragx_out/maps/geffen.glb (single file)
+ragx maps prontera --world-scale 0.2       # bake a 1 m GAT-cell convention
 ragx maps --list | findstr prt            # find every "prt*" map (Windows)
 ```
 

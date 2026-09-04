@@ -83,6 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "glb = single self-contained file")
     p.add_argument("-j", "--processes", type=int, default=1, metavar="N",
                    help="parallel worker processes (default: 1)")
+    p.add_argument("--world-scale", type=float, default=1.0, metavar="FACTOR",
+                   help="bake every map/model length by FACTOR (default: 1.0)")
     p.add_argument("--list", action="store_true",
                    help="list the available map names and exit")
 

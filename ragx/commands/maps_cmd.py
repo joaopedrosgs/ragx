@@ -6,7 +6,8 @@ and referenced by each map that uses it. ``--format glb`` embeds geometry and
 textures into a single self-contained file per map instead.
 
 Coordinates are standard glTF (right-handed, +Y up) with -Z = map north and the
-terrain centred at the origin; one unit is one client world unit. Animations
+terrain centred at the origin; one unit is one client world unit unless
+``--world-scale`` requests a baked conversion. Animations
 (windmills, clock towers, swinging signs, ...) are exported as glTF animation
 channels, one animation per animated object so each loops over its own duration.
 """
@@ -38,17 +39,19 @@ def list_maps(client_dir: str) -> list[str]:
 
 
 def convert_one(client_dir: str, map_name: str, out_dir: str,
-                fmt: str = "gltf") -> tuple[str, str]:
+                fmt: str = "gltf", world_scale: float = 1.0) -> tuple[str, str]:
     """Convert a single map. Also the multiprocessing worker entry point;
     returns ``(map_name, summary-or-error)``."""
     from ..map_builder import AssetSource, MapBuilder, MapHasNoTerrain
 
+    builder_key = (client_dir, out_dir, world_scale)
     builder = globals().get("_WORKER_BUILDER")
-    if builder is None or getattr(builder, "_client_dir", None) != client_dir:
+    if builder is None or getattr(builder, "_builder_key", None) != builder_key:
         archive = client_mod.open_archive(client_dir)
         builder = MapBuilder(AssetSource(archive),
-                             texture_dir=os.path.join(out_dir, "textures"))
-        builder._client_dir = client_dir
+                             texture_dir=os.path.join(out_dir, "textures"),
+                             world_scale=world_scale)
+        builder._builder_key = builder_key
         globals()["_WORKER_BUILDER"] = builder
 
     out_path = os.path.join(out_dir, f"{map_name}.{fmt}")
@@ -71,7 +74,7 @@ def convert_one(client_dir: str, map_name: str, out_dir: str,
         return map_name, "FAILED\n" + traceback.format_exc()
 
 
-def _convert_star(job: tuple[str, str, str, str]) -> tuple[str, str]:
+def _convert_star(job: tuple[str, str, str, str, float]) -> tuple[str, str]:
     return convert_one(*job)
 
 
@@ -97,7 +100,8 @@ def run(args) -> int:
     failures = 0
     if args.processes > 1:
         import multiprocessing as mp
-        jobs = [(args.client, m, out_dir, args.format) for m in maps]
+        jobs = [(args.client, m, out_dir, args.format, args.world_scale)
+                for m in maps]
         with mp.Pool(args.processes) as pool:
             for index, (name, message) in enumerate(
                     pool.imap_unordered(_convert_star, jobs, chunksize=1)):
@@ -105,7 +109,8 @@ def run(args) -> int:
                 failures += "FAILED" in message
     else:
         for index, map_name in enumerate(maps):
-            name, message = convert_one(args.client, map_name, out_dir, args.format)
+            name, message = convert_one(args.client, map_name, out_dir,
+                                        args.format, args.world_scale)
             print(f"[{index+1}/{len(maps)}] {name}: {message}", flush=True)
             failures += "FAILED" in message
 

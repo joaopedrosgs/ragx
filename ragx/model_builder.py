@@ -76,10 +76,11 @@ class ModelTemplate:
     is_v2: bool
 
 
-def build_template(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
+def build_template(model: rsm_format.Rsm, model_name: str,
+                   world_scale: float = 1.0) -> ModelTemplate:
     if model.is_v2:
-        return _build_v2(model, model_name)
-    return _build_v1(model, model_name)
+        return _build_v2(model, model_name, world_scale)
+    return _build_v1(model, model_name, world_scale)
 
 
 # --------------------------------------------------------------------------
@@ -185,7 +186,8 @@ def _smooth_model_normals(faces: list[rsm_format.Face],
 
 
 def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str],
-               smooth: bool, flip_y: bool = False) -> list[Primitive]:
+               smooth: bool, flip_y: bool = False,
+               world_scale: float = 1.0) -> list[Primitive]:
     """Transform vertices by main_matrix, build per-texture primitives in
     glTF space, with face or smoothing-group normals.
 
@@ -207,6 +209,9 @@ def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str
         baked = [(x, -y, -z) for (x, y, z) in baked]
     else:
         baked = [(x, y, -z) for (x, y, z) in baked]  # RO -> glTF mirror
+    if world_scale != 1.0:
+        baked = [tuple(component * world_scale for component in vertex)
+                 for vertex in baked]
 
     faces = node.faces
     if not flip_y:
@@ -275,7 +280,8 @@ def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str
 # RSM1
 # --------------------------------------------------------------------------
 
-def _build_v1(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
+def _build_v1(model: rsm_format.Rsm, model_name: str,
+              world_scale: float) -> ModelTemplate:
     order, parents = _node_children_order(model)
     nodes = model.nodes
     smooth = model.shade_type == 2
@@ -321,7 +327,8 @@ def _build_v1(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
                           mu.mat3_to_mat4(node.offset_matrix))
         # RSM1 geometry is authored Y-down; bake the flip so standalone
         # model files stand upright and instances need no negative scale.
-        primitives = _bake_mesh(node, main, textures, smooth, flip_y=True)
+        primitives = _bake_mesh(node, main, textures, smooth, flip_y=True,
+                                world_scale=world_scale)
 
         has_rotation_anim = bool(node.rotation_keyframes)
         has_scale_anim = bool(node.scale_keyframes)
@@ -356,7 +363,8 @@ def _build_v1(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
         templates.append(NodeTemplate(
             name=node.name or f"node{node_index}",
             parent=parents[position],
-            translation=mu.rot_x180_point(tuple(translation)),
+            translation=tuple(component * world_scale for component in
+                              mu.rot_x180_point(tuple(translation))),
             rotation=mu.rot_x180_quat(rotation),
             scale=tuple(scale),
             primitives=primitives,
@@ -370,7 +378,8 @@ def _build_v1(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
 # RSM2
 # --------------------------------------------------------------------------
 
-def _build_v2(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
+def _build_v2(model: rsm_format.Rsm, model_name: str,
+              world_scale: float) -> ModelTemplate:
     order, parents = _node_children_order(model)
     nodes = model.nodes
     smooth = model.shade_type == 2
@@ -382,7 +391,8 @@ def _build_v2(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
     for position, node_index in enumerate(order):
         node = nodes[node_index]
         textures = _node_texture_list(model, node)
-        primitives = _bake_mesh(node, mu.IDENTITY, textures, smooth)
+        primitives = _bake_mesh(node, mu.IDENTITY, textures, smooth,
+                                world_scale=world_scale)
 
         if parents[position] < 0:
             parent_rotation = mu.IDENTITY
@@ -411,8 +421,10 @@ def _build_v2(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
         if node.translation_keyframes:
             is_static = False
             times = np.asarray([k[0] / fps for k in node.translation_keyframes], dtype=np.float32)
-            values = np.asarray([mu.mirror_z_point(tuple(k[1:4])) for k in node.translation_keyframes],
-                                dtype=np.float32)
+            values = np.asarray([
+                tuple(component * world_scale for component in
+                      mu.mirror_z_point(tuple(k[1:4])))
+                for k in node.translation_keyframes], dtype=np.float32)
             channels.append(AnimChannel("translation", times, values))
         if node.scale_keyframes:
             is_static = False
@@ -423,7 +435,8 @@ def _build_v2(model: rsm_format.Rsm, model_name: str) -> ModelTemplate:
         templates.append(NodeTemplate(
             name=node.name or f"node{node_index}",
             parent=parents[position],
-            translation=mu.mirror_z_point(tuple(local_translation)),
+            translation=tuple(component * world_scale for component in
+                              mu.mirror_z_point(tuple(local_translation))),
             rotation=mu.mirror_z_quat(mu.quat_normalize(local_rotation)),
             scale=(1.0, 1.0, 1.0),
             primitives=primitives,
