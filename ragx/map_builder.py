@@ -754,8 +754,11 @@ class MapBuilder:
                 bucket["indices"].extend((base, base + 1, base + 2,
                                           base + 2, base + 1, base + 3))
 
-        # Normals: face normals, then average per shared position except on
-        # vertical (wall) edges, mirroring korangar's smooth_ground_normals.
+        # Korangar smooths the complete terrain before splitting it by texture.
+        # Doing this inside each material bucket leaves a lighting seam wherever
+        # two neighbouring GND surfaces use different textures.
+        normals_by_texture = _terrain_bucket_normals(buckets)
+
         primitives = []
         for texture_index, bucket in sorted(buckets.items()):
             positions = np.asarray(bucket["positions"], dtype=np.float32)
@@ -763,7 +766,7 @@ class MapBuilder:
             uvs = np.asarray(bucket["uvs"], dtype=np.float32)
             colors = np.asarray(bucket["colors"], dtype=np.uint8)
 
-            normals = _smoothed_normals(positions, indices)
+            normals = normals_by_texture[texture_index]
 
             attributes = {
                 "POSITION": builder.add_accessor(positions, "VEC3", FLOAT, ARRAY_BUFFER, minmax=True),
@@ -919,9 +922,36 @@ class MapBuilder:
         )
 
 
+def _terrain_bucket_normals(buckets: dict[int, dict]) -> dict[int, np.ndarray]:
+    """Smooth one terrain globally, then return normals in material slices."""
+    positions: list[np.ndarray] = []
+    indices: list[np.ndarray] = []
+    ranges: dict[int, tuple[int, int]] = {}
+    offset = 0
+    for texture_index, bucket in sorted(buckets.items()):
+        part_positions = np.asarray(bucket["positions"], dtype=np.float32)
+        part_indices = np.asarray(bucket["indices"], dtype=np.uint32)
+        positions.append(part_positions)
+        indices.append(part_indices + offset)
+        ranges[texture_index] = (offset, offset + len(part_positions))
+        offset += len(part_positions)
+
+    if not positions:
+        return {}
+    all_normals = _smoothed_normals(
+        np.concatenate(positions), np.concatenate(indices))
+    return {texture_index: all_normals[start:end]
+            for texture_index, (start, end) in ranges.items()}
+
+
 def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
-    """Face normals averaged per position, except for vertices that sit on
-    vertical edges (walls), which keep their face normal."""
+    """Port of Korangar's ground smoothing semantics.
+
+    Face normals are accumulated by transformed position across the complete
+    terrain. Vertices on vertical edges do not contribute (they are artificial
+    wall structure), but they still receive an existing smooth normal at their
+    position exactly as Korangar's final assignment pass does.
+    """
     tri = indices.reshape(-1, 3)
     p0 = positions[tri[:, 0]]
     p1 = positions[tri[:, 1]]
@@ -932,10 +962,8 @@ def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
     face_normals /= lengths
 
     vertex_normals = np.zeros_like(positions)
-    counts = np.zeros(len(positions), dtype=np.int32)
     for column in range(3):
         np.add.at(vertex_normals, tri[:, column], face_normals)
-        np.add.at(counts, tri[:, column], 1)
 
     # Identify wall vertices: any triangle edge with matching x and z.
     artificial = np.zeros(len(positions), dtype=bool)
@@ -947,9 +975,11 @@ def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
         artificial[a[same_xz]] = True
         artificial[b[same_xz]] = True
 
-    # Group by exact position for smoothing.
-    keys = positions.round(4)
-    view = np.ascontiguousarray(keys).view([("x", "f4"), ("y", "f4"), ("z", "f4")]).ravel()
+    # Korangar keys transformed positions at 1e-6 precision. Integer keys avoid
+    # float hashing differences while retaining that tolerance.
+    keys = np.rint(positions.astype(np.float64) / 1e-6).astype(np.int64)
+    view = np.ascontiguousarray(keys).view(
+        [("x", "i8"), ("y", "i8"), ("z", "i8")]).ravel()
     order = np.argsort(view, order=("x", "y", "z"))
     sorted_view = view[order]
     group_starts = np.ones(len(order), dtype=bool)
@@ -963,8 +993,12 @@ def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
     smooth_mask = ~artificial
     np.add.at(group_normals, inverse[smooth_mask], vertex_normals[smooth_mask])
 
-    result = np.where(smooth_mask[:, None], group_normals[inverse], vertex_normals)
+    candidates = group_normals[inverse]
+    has_smooth_normal = np.linalg.norm(candidates, axis=1) >= 1e-9
+    result = np.where(has_smooth_normal[:, None], candidates, vertex_normals)
     lengths = np.linalg.norm(result, axis=1, keepdims=True)
-    lengths[lengths < 1e-9] = 1.0
+    degenerate = lengths[:, 0] < 1e-9
+    result[degenerate] = (0.0, 1.0, 0.0)
+    lengths[degenerate] = 1.0
     result = (result / lengths).astype(np.float32)
     return result

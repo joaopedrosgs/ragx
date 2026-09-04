@@ -130,6 +130,60 @@ def _node_texture_list(model: rsm_format.Rsm, node: rsm_format.Node) -> list[str
     return [model.textures[i] if i < len(model.textures) else "" for i in node.texture_indices]
 
 
+def _smooth_model_normals(faces: list[rsm_format.Face],
+                          face_normals: list[tuple[float, float, float]],
+                          positions: list[tuple[float, float, float]]) \
+        -> list[list[tuple[float, float, float]]]:
+    """Korangar-compatible RSM smoothing in transformed position space.
+
+    An RSM face may belong to several smoothing groups. Korangar first sums
+    every face normal at a position inside each group, then a face vertex sums
+    all group totals it belongs to and normalizes once. Grouping by source
+    vertex index or consulting only the first group leaves seams whenever an
+    artist duplicated a vertex or supplied the extra RSM 2.2 groups.
+    """
+    grouped: dict[tuple[int, tuple[int, int, int]], list[float]] = {}
+
+    def position_key(position: tuple[float, float, float]) -> tuple[int, int, int]:
+        return tuple(round(float(component) / 1e-6) for component in position)
+
+    def groups_for(face: rsm_format.Face) -> list[int]:
+        groups: list[int] = []
+        for group in face.smooth_group:
+            if group < 0:
+                break
+            normalized = group % 128
+            if normalized not in groups:
+                groups.append(normalized)
+        return groups
+
+    for face, normal in zip(faces, face_normals):
+        for group in groups_for(face):
+            for vertex_index in face.vertex_indices:
+                key = (group, position_key(positions[vertex_index]))
+                total = grouped.setdefault(key, [0.0, 0.0, 0.0])
+                for axis in range(3):
+                    total[axis] += normal[axis]
+
+    smoothed: list[list[tuple[float, float, float]]] = []
+    for face, fallback in zip(faces, face_normals):
+        vertex_normals: list[tuple[float, float, float]] = []
+        groups = groups_for(face)
+        for vertex_index in face.vertex_indices:
+            key = position_key(positions[vertex_index])
+            total = [0.0, 0.0, 0.0]
+            for group in groups:
+                contribution = grouped.get((group, key))
+                if contribution is not None:
+                    for axis in range(3):
+                        total[axis] += contribution[axis]
+            length = math.sqrt(sum(component * component for component in total))
+            vertex_normals.append(tuple(component / length for component in total)
+                                  if length >= 1e-9 else fallback)
+        smoothed.append(vertex_normals)
+    return smoothed
+
+
 def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str],
                smooth: bool, flip_y: bool = False) -> list[Primitive]:
     """Transform vertices by main_matrix, build per-texture primitives in
@@ -176,26 +230,8 @@ def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str
             n = (n[0] / length, n[1] / length, n[2] / length)
         face_normals.append(n)
 
-    smooth_normals: dict[tuple[int, int], tuple[float, float, float]] = {}
-    if smooth:
-        # Accumulate normals per (smoothing group, vertex index).
-        accumulator: dict[tuple[int, int], list[float]] = {}
-        for face, normal in zip(faces, face_normals):
-            for group in face.smooth_group:
-                if group < 0:
-                    break
-                for vertex_index in face.vertex_indices:
-                    key = (group, vertex_index)
-                    entry = accumulator.setdefault(key, [0.0, 0.0, 0.0])
-                    entry[0] += normal[0]
-                    entry[1] += normal[1]
-                    entry[2] += normal[2]
-        for key, (x, y, z) in accumulator.items():
-            length = math.sqrt(x * x + y * y + z * z)
-            if length < 1e-9:
-                smooth_normals[key] = (0.0, 1.0, 0.0)
-            else:
-                smooth_normals[key] = (x / length, y / length, z / length)
+    smooth_normals = _smooth_model_normals(faces, face_normals, baked) \
+        if smooth else []
 
     # Group faces by texture, deduplicating (vertex, uv, normal) tuples.
     by_texture: dict[int, dict] = {}
@@ -207,12 +243,9 @@ def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str
         if face.two_sided:
             bucket["two_sided"] = True
         normal = face_normals[face_index]
-        primary_group = face.smooth_group[0] if face.smooth_group else 0
-        for vertex_index, uv_index in zip(face.vertex_indices, face.uv_indices):
-            if smooth:
-                vertex_normal = smooth_normals.get((primary_group, vertex_index), normal)
-            else:
-                vertex_normal = normal
+        for corner, (vertex_index, uv_index) in enumerate(
+                zip(face.vertex_indices, face.uv_indices)):
+            vertex_normal = smooth_normals[face_index][corner] if smooth else normal
             uv = node.uvs[uv_index] if uv_index < len(node.uvs) else (0.0, 0.0)
             key = (vertex_index, uv_index, vertex_normal)
             existing = bucket["lookup"].get(key)

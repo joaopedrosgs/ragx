@@ -295,12 +295,16 @@ are decrypted with Gravity's broken single-round DES.
 - **Coordinates**: standard glTF (right-handed, +Y up), **-Z = map north**,
   terrain centred at the origin; one unit = one client world unit.
 - **Terrain**: GND cubes → one mesh with a primitive per texture, vertex
-  colours, the half-pixel UV inset that prevents bleeding, and smoothed normals
-  (walls keep face normals).
+  colours, the half-pixel UV inset that prevents bleeding, and Korangar-style
+  normals smoothed globally by transformed position *before* material splitting.
+  Vertical wall edges do not contribute to the smooth sum, so changing terrain
+  texture cannot create a lighting seam.
 - **Models**: each unique RSM is converted once and instanced per placement.
   The RSM1 Y-down convention is baked into the geometry so standalone models
   stand upright; genuinely mirrored placements use a pre-reversed-winding
-  `@mirror` variant.
+  `@mirror` variant. Smooth-shaded RSMs combine every declared smoothing group
+  by transformed position, including duplicated source vertices and RSM 2.2
+  extra groups.
 - **Animations**: rotation/translation/scale keyframes → glTF animation channels,
   **one animation per animated object** so each loops over its own duration.
   Timing follows the client (RSM1 frames = ms, RSM2 frames / fps, per-instance
