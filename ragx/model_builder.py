@@ -197,15 +197,15 @@ def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str
             else:
                 smooth_normals[key] = (x / length, y / length, z / length)
 
-    # Group faces by texture, deduplicating (vertex, uv, normal) tuples.
+    # Legacy RO models use open planes and inconsistent two_sided flags (for
+    # example Prontera flowerbeds and houses). Keep both sides visible; the
+    # flag is not a reliable license to cull. Normals still control lighting.
     by_texture: dict[int, dict] = {}
     for face_index, face in enumerate(faces):
         bucket = by_texture.setdefault(face.texture_index, {
             "positions": [], "normals": [], "uvs": [], "indices": [],
-            "lookup": {}, "two_sided": False,
+            "lookup": {},
         })
-        if face.two_sided:
-            bucket["two_sided"] = True
         normal = face_normals[face_index]
         primary_group = face.smooth_group[0] if face.smooth_group else 0
         for vertex_index, uv_index in zip(face.vertex_indices, face.uv_indices):
@@ -233,7 +233,7 @@ def _bake_mesh(node: rsm_format.Node, main_matrix: mu.Matrix, textures: list[str
             normals=np.asarray(bucket["normals"], dtype=np.float32),
             uvs=np.asarray(bucket["uvs"], dtype=np.float32),
             indices=np.asarray(bucket["indices"], dtype=np.uint32),
-            double_sided=True,  # RO never culls reliably; keep everything visible
+            double_sided=True,
         ))
     return primitives
 

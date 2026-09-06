@@ -407,3 +407,11 @@ Format knowledge comes from studying these projects:
 ragx's **source code** is released under the [MIT License](LICENSE). This license
 applies only to the code in this repository — **not** to any Ragnarok Online
 asset or to output produced from one (see [Disclaimer & Legal](#disclaimer--legal)).
+
+### Legacy model visibility
+
+RSM scenery remains double-sided regardless of the source face flag. Prontera
+flowerbeds and buildings contain open surfaces with inconsistent flags; culling
+them makes plants and walls disappear from some viewing angles. This visibility
+policy is independent of triangle winding and lighting normals. Run
+`python -m unittest discover -s tests -p test_model_visibility.py` to check it.
