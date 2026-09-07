@@ -22,6 +22,8 @@ import os
 import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass, field
+from dataclasses import asdict
+from functools import wraps
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +36,8 @@ from .gltf import ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, FLOAT, UNSIGNED_BYTE, UNSI
 from .grf import normalize_path
 from .model_builder import ModelTemplate, build_template
 from .textures import LoadedTexture, convert_texture
+from .world_scale import bake_world_scale
+from .incremental import BuildCache, ByteLRU, TrackedSource, write_bytes
 
 WATER_OPACITY = 144.0 / 255.0
 
@@ -45,12 +49,7 @@ class MapHasNoTerrain(Exception):
 def _atomic_write(path: Path, data: bytes) -> None:
     """Write via temp file + rename so parallel workers writing the same
     shared file (model glTFs) can never interleave."""
-    temporary = path.parent / (path.name + f".{os.getpid()}.tmp")
-    temporary.write_bytes(data)
-    try:
-        os.replace(temporary, path)
-    except OSError:
-        temporary.unlink(missing_ok=True)
+    write_bytes(path, data)
 
 
 class AssetSource:
@@ -81,27 +80,52 @@ class BuildStats:
     animated_instances: int = 0
 
 
+def cached_asset(method):
+    @wraps(method)
+    def wrapped(self, name, out_path, *args, **kwargs):
+        if self.build_cache is None:
+            return method(self, name, out_path, *args, **kwargs)
+        def build():
+            result = method(self, name, out_path, *args, **kwargs)
+            return {'stats': asdict(result)} if isinstance(result, BuildStats) else {'value': result}
+        key = method.__name__ + ':' + Path(out_path).resolve().relative_to(self.build_cache.root).as_posix()
+        result = self.build_cache.run(key, {'name': name, 'args': list(args), 'kwargs': kwargs,
+                                          'world_scale': self.world_scale}, build)
+        return BuildStats(**result['stats']) if 'stats' in result else result['value']
+    return wrapped
+
+
 class MapBuilder:
-    def __init__(self, source: AssetSource, texture_dir: str | os.PathLike | None = None):
+    def __init__(self, source: AssetSource, texture_dir: str | os.PathLike | None = None,
+                 *, world_scale: float = 1.0, cache_root: str | os.PathLike | None = None):
         """`texture_dir`: where shared PNG files go for .gltf output (one
         file per unique texture, reused by every map that references it)."""
+        if not math.isfinite(world_scale) or world_scale <= 0:
+            raise ValueError("world_scale must be finite and positive")
+        self.world_scale = world_scale
         self.source = source
+        self.build_cache = None
+        if cache_root is not None:
+            if not isinstance(source._reader, TrackedSource):
+                source._reader = TrackedSource(source._reader)
+            self.build_cache = BuildCache(Path(cache_root), source._reader)
         self.texture_dir = Path(texture_dir) if texture_dir is not None else None
-        self.texture_cache: dict[str, LoadedTexture | None] = {}
-        self.template_cache: dict[str, ModelTemplate | None] = {}
+        self.texture_cache = ByteLRU(64 * 1024**2)
+        self.template_cache = ByteLRU(128 * 1024**2)
         self._written_textures: set[str] = set()
         self._collision_stems: set[str] | None = None
 
     # ---- texture/material helpers ------------------------------------
 
-    _TEXTURE_CACHE_LIMIT = 2048  # bounds memory during long batch runs
+    _TEMPLATE_CACHE_LIMIT = 128
+    _TEXTURE_CACHE_LIMIT = 256  # bounds memory during long batch runs
 
     def _load_texture(self, name: str) -> LoadedTexture | None:
         key = normalize_path("data\\texture\\" + name)
+        if hasattr(self.source._reader, 'touch'):
+            self.source._reader.touch(key)
         if key in self.texture_cache:
             return self.texture_cache[key]
-        if len(self.texture_cache) >= self._TEXTURE_CACHE_LIMIT:
-            self.texture_cache.clear()
         raw = self.source.try_read(key)
         result: LoadedTexture | None = None
         if raw is not None:
@@ -119,6 +143,8 @@ class MapBuilder:
         keep the original extension in the name to stay unambiguous."""
         key = normalize_path(texture_name)
         stem, dot, _ext = key.rpartition(".")
+        if dot and hasattr(self.source._reader, 'touch'):
+            self.source._reader.touch('@stem:data\\texture\\' + stem)
         if dot and stem not in self._texture_collisions():
             return stem.replace("\\", "/") + ".png"
         return key.replace("\\", "/") + ".png"
@@ -153,19 +179,15 @@ class MapBuilder:
         relpath = self._texture_relpath(texture_name)
         if relpath not in self._written_textures:
             target = self.texture_dir / relpath
-            if not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                # Atomic write: parallel workers may race on the same file.
-                temporary = target.parent / (target.name + f".{os.getpid()}.tmp")
-                temporary.write_bytes(texture.png)
-                try:
-                    os.replace(temporary, target)
-                except OSError:
-                    temporary.unlink(missing_ok=True)
+            _atomic_write(target, texture.png)
             self._written_textures.add(relpath)
+        else:
+            # A nested cached task must retain this shared output dependency.
+            _atomic_write(self.texture_dir / relpath, texture.png)
         uri_path = "/".join(urllib.parse.quote(part) for part in relpath.split("/"))
         return f"{uri_base}{self.texture_dir.name}/{uri_path}"
 
+    @cached_asset
     def build(self, map_name: str, out_path: str) -> BuildStats:
         stats = BuildStats()
         source = self.source
@@ -196,7 +218,7 @@ class MapBuilder:
         builder.add_scene_node(light_node)
 
         # ---- models --------------------------------------------------------
-        mesh_cache: dict[tuple[str, int], int | None] = {}
+        mesh_cache: dict[tuple[str, int, bool], int | None] = {}
         accessor_cache: dict[tuple[int, float], tuple[int, int]] = {}
 
         for instance in rsw.models:
@@ -222,8 +244,8 @@ class MapBuilder:
     def _material_factory(self, builder: GltfBuilder, sampler: int, stats: BuildStats,
                           external_textures: bool, uri_base: str):
         """Return (material_for, add_image) closures bound to a builder."""
-        material_indices: dict[str, int] = {}
-        fallback_material: int | None = None
+        material_indices: dict[tuple[str, bool, bool, int], int] = {}
+        texture_indices: dict[str, int] = {}
 
         def add_image(texture_name: str, texture: LoadedTexture) -> int:
             if external_textures:
@@ -231,68 +253,80 @@ class MapBuilder:
                 return builder.add_image_uri(uri, texture_name)
             return builder.add_image_png(texture.png, texture_name)
 
-        def material_for(texture_name: str) -> int:
-            nonlocal fallback_material
-            key = normalize_path(texture_name) if texture_name else ""
+        def material_for(texture_name: str, *, double_sided: bool = True,
+                         unlit: bool = False, opacity: float = 1.0) -> int:
+            texture_key = normalize_path(texture_name) if texture_name else ""
+            opacity_byte = max(0, min(255, round(opacity * 255.0)))
+            opacity = opacity_byte / 255.0
+            key = (texture_key, double_sided, unlit, opacity_byte)
             if key in material_indices:
                 return material_indices[key]
-            if key.endswith(".bik"):
+
+            def finish(material: dict) -> int:
+                material["doubleSided"] = double_sided
+                if unlit:
+                    material["extensions"] = {"KHR_materials_unlit": {}}
+                    builder.use_extension("KHR_materials_unlit")
+                if opacity < 1.0:
+                    material["alphaMode"] = "BLEND"
+                index = builder.add_material(material)
+                material_indices[key] = index
+                return index
+
+            if texture_key.endswith(".bik"):
                 # Bink video texture (animated billboards); not embeddable.
-                index = builder.add_material({
+                return finish({
                     "name": texture_name,
                     "pbrMetallicRoughness": {
-                        "baseColorFactor": [0.35, 0.35, 0.35, 1.0],
+                        "baseColorFactor": [0.35, 0.35, 0.35, opacity],
                         "metallicFactor": 0.0,
                         "roughnessFactor": 1.0,
                     },
-                    "doubleSided": True,
                 })
-                material_indices[key] = index
-                return index
             texture = self._load_texture(texture_name) if texture_name else None
             if texture is None:
                 if texture_name:
                     stats.missing_textures.append(texture_name)
-                if fallback_material is None:
-                    fallback_material = builder.add_material({
-                        "name": "missing",
-                        "pbrMetallicRoughness": {
-                            "baseColorFactor": [1.0, 0.0, 1.0, 1.0],
-                            "metallicFactor": 0.0,
-                            "roughnessFactor": 1.0,
-                        },
-                        "doubleSided": True,
-                    })
-                material_indices[key] = fallback_material
-                return fallback_material
-            image = add_image(texture_name, texture)
-            texture_index = builder.add_texture(image, sampler)
+                return finish({
+                    "name": "missing" if not texture_name else f"missing: {texture_name}",
+                    "pbrMetallicRoughness": {
+                        "baseColorFactor": [1.0, 0.0, 1.0, opacity],
+                        "metallicFactor": 0.0,
+                        "roughnessFactor": 1.0,
+                    },
+                })
+            texture_index = texture_indices.get(texture_key)
+            if texture_index is None:
+                image = add_image(texture_name, texture)
+                texture_index = builder.add_texture(image, sampler)
+                texture_indices[texture_key] = texture_index
             material = {
                 "name": texture_name,
                 "pbrMetallicRoughness": {
                     "baseColorTexture": {"index": texture_index},
+                    "baseColorFactor": [1.0, 1.0, 1.0, opacity],
                     "metallicFactor": 0.0,
                     "roughnessFactor": 1.0,
                 },
-                "doubleSided": True,
             }
-            if texture.has_alpha:
+            if opacity < 1.0 or texture.alpha_mode == "BLEND":
+                material["alphaMode"] = "BLEND"
+            elif texture.alpha_mode == "MASK":
                 material["alphaMode"] = "MASK"
                 material["alphaCutoff"] = 0.5
-            index = builder.add_material(material)
-            material_indices[key] = index
-            return index
+            return finish(material)
 
         return material_for, add_image
 
     def _write_output(self, builder: GltfBuilder, out_path: str | os.PathLike,
                       external_textures: bool) -> None:
+        bake_world_scale(builder, self.world_scale)
         out_path = Path(out_path)
         if external_textures:
             bin_name = out_path.stem + ".bin"
             json_bytes, bin_bytes = builder.to_gltf(urllib.parse.quote(bin_name))
-            _atomic_write(out_path, json_bytes)
             _atomic_write(out_path.with_name(bin_name), bin_bytes)
+            _atomic_write(out_path, json_bytes)
         else:
             _atomic_write(out_path, builder.to_glb())
 
@@ -309,6 +343,7 @@ class MapBuilder:
                                           water.texture_cycling_interval)], (1, 1)
         return [], (1, 1)
 
+    @cached_asset
     def build_terrain_gltf(self, map_name: str, out_path: str | os.PathLike,
                            uri_base: str = "../", include_water: bool = True) -> BuildStats:
         """Terrain (+ optionally water) as one .gltf, no models/lights."""
@@ -333,6 +368,7 @@ class MapBuilder:
         self._write_output(builder, out_path, True)
         return stats
 
+    @cached_asset
     def build_water_gltf(self, map_name: str, out_path: str | os.PathLike,
                          uri_base: str = "../") -> dict | None:
         """Water plane as its own .gltf, plus all 32 animation frames in
@@ -439,6 +475,7 @@ class MapBuilder:
         self._write_output(builder, out_path, True)
         return True
 
+    @cached_asset
     def build_model_gltf(self, model_name: str, out_path: str | os.PathLike,
                          uri_base: str, effective_speed: float = 1.0,
                          flip_winding: bool = False) -> BuildStats | None:
@@ -511,8 +548,12 @@ class MapBuilder:
 
     def _load_template(self, model_name: str, stats: BuildStats) -> ModelTemplate | None:
         key = normalize_path(model_name)
+        if hasattr(self.source._reader, 'touch'):
+            self.source._reader.touch("data\\model\\" + key)
         if key in self.template_cache:
             return self.template_cache[key]
+        # Templates retain NumPy geometry arrays across maps. A full-client
+        # batch otherwise grows this cache for the lifetime of each worker.
         raw = self.source.try_read("data\\model\\" + key)
         template: ModelTemplate | None = None
         if raw is None:
@@ -540,6 +581,7 @@ class MapBuilder:
         # The RSM1 Y-flip is baked into the template geometry, so the
         # instance scale is used as stored in the RSW for all versions.
         scale = instance.scale
+        mirrored = (scale[0] * scale[1] * scale[2]) < 0.0
 
         # Original client (see open-midgard 3dActor::AdvanceFrame): the
         # animation timer advances int(speed * 100/3) ms (minimum 1) per
@@ -556,7 +598,8 @@ class MapBuilder:
         children_of: dict[int, list[int]] = defaultdict(list)
 
         for index, node in enumerate(template.nodes):
-            mesh_index = self._mesh_for(builder, template, index, material_for, mesh_cache)
+            mesh_index = self._mesh_for(builder, template, index, material_for, mesh_cache,
+                                        flip_winding=mirrored)
             node_id = builder.add_node(
                 name=f"{instance.name or template.name}#{node.name}",
                 mesh=mesh_index,
@@ -640,7 +683,12 @@ class MapBuilder:
                 "attributes": attributes,
                 "indices": builder.add_accessor(indices, "SCALAR", UNSIGNED_INT,
                                                 ELEMENT_ARRAY_BUFFER),
-                "material": material_for(primitive.texture),
+                "material": material_for(
+                    primitive.texture,
+                    double_sided=primitive.double_sided,
+                    unlit=template.shade_type == 0,
+                    opacity=template.alpha / 255.0,
+                ),
             })
         mesh_index = builder.add_mesh(primitives, name=f"{template.name}/{node.name}") if primitives else None
         mesh_cache[key] = mesh_index
@@ -754,16 +802,18 @@ class MapBuilder:
                 bucket["indices"].extend((base, base + 1, base + 2,
                                           base + 2, base + 1, base + 3))
 
-        # Normals: face normals, then average per shared position except on
-        # vertical (wall) edges, mirroring korangar's smooth_ground_normals.
+        # Korangar smooths the complete terrain before splitting it by texture.
+        # Doing this inside each material bucket leaves a lighting seam wherever
+        # two neighbouring GND surfaces use different textures.
+        normals_by_texture = _terrain_bucket_normals(buckets)
+
         primitives = []
         for texture_index, bucket in sorted(buckets.items()):
             positions = np.asarray(bucket["positions"], dtype=np.float32)
             indices = np.asarray(bucket["indices"], dtype=np.uint32)
             uvs = np.asarray(bucket["uvs"], dtype=np.float32)
             colors = np.asarray(bucket["colors"], dtype=np.uint8)
-
-            normals = _smoothed_normals(positions, indices)
+            normals = normals_by_texture[texture_index]
 
             attributes = {
                 "POSITION": builder.add_accessor(positions, "VEC3", FLOAT, ARRAY_BUFFER, minmax=True),
@@ -919,9 +969,36 @@ class MapBuilder:
         )
 
 
+def _terrain_bucket_normals(buckets: dict[int, dict]) -> dict[int, np.ndarray]:
+    """Smooth one terrain globally, then return normals in material slices."""
+    positions: list[np.ndarray] = []
+    indices: list[np.ndarray] = []
+    ranges: dict[int, tuple[int, int]] = {}
+    offset = 0
+    for texture_index, bucket in sorted(buckets.items()):
+        part_positions = np.asarray(bucket["positions"], dtype=np.float32)
+        part_indices = np.asarray(bucket["indices"], dtype=np.uint32)
+        positions.append(part_positions)
+        indices.append(part_indices + offset)
+        ranges[texture_index] = (offset, offset + len(part_positions))
+        offset += len(part_positions)
+
+    if not positions:
+        return {}
+    all_normals = _smoothed_normals(
+        np.concatenate(positions), np.concatenate(indices))
+    return {texture_index: all_normals[start:end]
+            for texture_index, (start, end) in ranges.items()}
+
+
 def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
-    """Face normals averaged per position, except for vertices that sit on
-    vertical edges (walls), which keep their face normal."""
+    """Port of Korangar's ground smoothing semantics.
+
+    Face normals are accumulated by transformed position across the complete
+    terrain. Vertices on vertical edges do not contribute (they are artificial
+    wall structure), but they still receive an existing smooth normal at their
+    position exactly as Korangar's final assignment pass does.
+    """
     tri = indices.reshape(-1, 3)
     p0 = positions[tri[:, 0]]
     p1 = positions[tri[:, 1]]
@@ -932,10 +1009,8 @@ def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
     face_normals /= lengths
 
     vertex_normals = np.zeros_like(positions)
-    counts = np.zeros(len(positions), dtype=np.int32)
     for column in range(3):
         np.add.at(vertex_normals, tri[:, column], face_normals)
-        np.add.at(counts, tri[:, column], 1)
 
     # Identify wall vertices: any triangle edge with matching x and z.
     artificial = np.zeros(len(positions), dtype=bool)
@@ -947,9 +1022,11 @@ def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
         artificial[a[same_xz]] = True
         artificial[b[same_xz]] = True
 
-    # Group by exact position for smoothing.
-    keys = positions.round(4)
-    view = np.ascontiguousarray(keys).view([("x", "f4"), ("y", "f4"), ("z", "f4")]).ravel()
+    # Korangar keys transformed positions at 1e-6 precision. Integer keys avoid
+    # float hashing differences while retaining that tolerance.
+    keys = np.rint(positions.astype(np.float64) / 1e-6).astype(np.int64)
+    view = np.ascontiguousarray(keys).view(
+        [("x", "i8"), ("y", "i8"), ("z", "i8")]).ravel()
     order = np.argsort(view, order=("x", "y", "z"))
     sorted_view = view[order]
     group_starts = np.ones(len(order), dtype=bool)
@@ -963,8 +1040,12 @@ def _smoothed_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
     smooth_mask = ~artificial
     np.add.at(group_normals, inverse[smooth_mask], vertex_normals[smooth_mask])
 
-    result = np.where(smooth_mask[:, None], group_normals[inverse], vertex_normals)
+    candidates = group_normals[inverse]
+    has_smooth_normal = np.linalg.norm(candidates, axis=1) >= 1e-9
+    result = np.where(has_smooth_normal[:, None], candidates, vertex_normals)
     lengths = np.linalg.norm(result, axis=1, keepdims=True)
-    lengths[lengths < 1e-9] = 1.0
+    degenerate = lengths[:, 0] < 1e-9
+    result[degenerate] = (0.0, 1.0, 0.0)
+    lengths[degenerate] = 1.0
     result = (result / lengths).astype(np.float32)
     return result

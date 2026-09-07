@@ -22,6 +22,13 @@ class LoadedTexture:
     width: int
     height: int
     has_alpha: bool
+    alpha_mode: str | None = None  # "OPAQUE" | "MASK" | "BLEND"
+
+    def __post_init__(self) -> None:
+        # Preserve compatibility with callers that constructed the former
+        # four-field LoadedTexture directly.
+        if self.alpha_mode is None:
+            self.alpha_mode = "MASK" if self.has_alpha else "OPAQUE"
 
 
 def convert_texture(raw: bytes, name: str) -> LoadedTexture:
@@ -38,13 +45,19 @@ def convert_texture(raw: bytes, name: str) -> LoadedTexture:
     if not lower.endswith((".jpg", ".jpeg")):
         has_alpha = _apply_magenta_key(image)
     has_alpha = has_alpha or _image_has_alpha(image)
+    if not has_alpha:
+        alpha_mode = "OPAQUE"
+    elif _image_has_fractional_alpha(image):
+        alpha_mode = "BLEND"
+    else:
+        alpha_mode = "MASK"
 
     if not has_alpha:
         image = image.convert("RGB")
 
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=False)
-    return LoadedTexture(buffer.getvalue(), image.width, image.height, has_alpha)
+    image.save(buffer, format="PNG", optimize=False, compress_level=1)
+    return LoadedTexture(buffer.getvalue(), image.width, image.height, has_alpha, alpha_mode)
 
 
 def _apply_magenta_key(image: Image.Image) -> bool:
@@ -107,3 +120,9 @@ def _image_has_alpha(image: Image.Image) -> bool:
     if len(extrema) >= 4:
         return extrema[3][0] < 255
     return False
+
+
+def _image_has_fractional_alpha(image: Image.Image) -> bool:
+    """Whether any texel has alpha strictly between transparent and opaque."""
+    alpha = np.asarray(image.getchannel("A"))
+    return bool(((alpha > 0) & (alpha < 255)).any())

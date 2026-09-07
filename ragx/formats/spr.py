@@ -87,6 +87,8 @@ def _decode_rle(reader: Reader, pixel_count: int) -> bytes:
     """Zero-run RLE used by v2.1+: 0x00 is followed by the run length."""
     encoded = reader.u16()
     data = reader.bytes(encoded)
+    if pixel_count > encoded * 255 or pixel_count > 64 * 1024**2:
+        raise ValueError('SPR RLE dimensions exceed encoded data or the 64 MiB frame limit')
     out = bytearray(pixel_count)
     next_pixel = 0
     pos = 0
@@ -94,10 +96,14 @@ def _decode_rle(reader: Reader, pixel_count: int) -> bytes:
         byte = data[pos]
         pos += 1
         if byte == 0:
+            if pos >= encoded:
+                raise ValueError('truncated SPR RLE run')
             length = max(data[pos], 1)
             pos += 1
             next_pixel += length  # already zero-initialized
         else:
+            if next_pixel >= pixel_count:
+                raise ValueError('RLE overruns the frame')
             out[next_pixel] = byte
             next_pixel += 1
         if next_pixel > pixel_count:

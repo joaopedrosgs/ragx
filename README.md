@@ -9,6 +9,7 @@ no separate "extract" step — and gives you:
 | `ragx maps` | maps & models → **glTF 2.0** | `.gltf` + `.bin` (+ shared `textures/`), or `.glb` |
 | `ragx sprites` | SPR/ACT sprites → **spritesheet + animation** | packed `.png` + `.json` |
 | `ragx effects` | STR skill / visual effects ("spells") → **atlas + keyframes** | packed `.png` + `.json` |
+| `ragx sounds` | all GRF sound effects to PCM WAV | `audio/sfx/` plus export report |
 | `ragx ui` | interface bitmaps → **transparent PNG** | magenta-keyed `.png` + theme textures |
 
 Built for and tested against the **LATAM client** (`C:\Gravity\Ragnarok`), but
@@ -295,19 +296,29 @@ are decrypted with Gravity's broken single-round DES.
 - **Coordinates**: standard glTF (right-handed, +Y up), **-Z = map north**,
   terrain centred at the origin; one unit = one client world unit.
 - **Terrain**: GND cubes → one mesh with a primitive per texture, vertex
-  colours, the half-pixel UV inset that prevents bleeding, and smoothed normals
-  (walls keep face normals).
+  colours, the half-pixel UV inset that prevents bleeding, and Korangar-style
+  normals smoothed globally by transformed position *before* material splitting.
+  Vertical wall edges do not contribute to the smooth sum, so changing terrain
+  texture cannot create a lighting seam.
 - **Models**: each unique RSM is converted once and instanced per placement.
   The RSM1 Y-down convention is baked into the geometry so standalone models
   stand upright; genuinely mirrored placements use a pre-reversed-winding
-  `@mirror` variant.
+  `@mirror` variant. Smooth-shaded RSMs combine every declared smoothing group
+  by transformed position, including duplicated source vertices and RSM 2.2
+  extra groups.
+- **Materials**: RSM shade type 0 uses `KHR_materials_unlit`; face-level
+  models remain double-sided: legacy face flags are inconsistent on open
+  flowerbeds and buildings, so enabling culling removes visible surfaces.
+  Winding and smoothing normals still control lighting; model alpha multiplies
+  texture alpha.
 - **Animations**: rotation/translation/scale keyframes → glTF animation channels,
   **one animation per animated object** so each loops over its own duration.
   Timing follows the client (RSM1 frames = ms, RSM2 frames / fps, per-instance
   `animation_speed` with the `max(speed, 0.03)` rule).
 - **Textures**: everything → PNG. (Near-)magenta key pixels become true
   transparent pixels (alphaMode MASK) with the RGB in-painted from neighbours so
-  filtering leaves no fringe. TGA alpha is preserved; URIs are percent-encoded.
+  filtering leaves no fringe. Fractional TGA alpha uses alphaMode BLEND; URIs are
+  percent-encoded.
 - **Water**: a semi-transparent plane over submerged tiles. **Light**: the RSW
   sun is exported via `KHR_lights_punctual`.
 
@@ -404,9 +415,47 @@ Format knowledge comes from studying these projects:
 
 ## License
 
+### Incremental builds and memory budgets
+
+Map, sprite and effect conversion now records source fingerprints and completed
+outputs under `.ragx-cache/` in the output tree. Unchanged runs skip conversion;
+changed/corrupt output is rebuilt. Do not distribute this cache with the game.
+PNG writes use compression level 1 to reduce build time while preserving pixels.
+Shared SPR sheets are built once per worker group; their ACT metadata remains
+independent. Recolorable body/head sheets include an index PNG.
+
+All commands accept `--memory-mb` (4096), `--reserve-mb` (2048), and `--timeout`
+(7200 seconds). Worker counts are capped against available memory. The supervisor
+samples process-tree private memory and terminates a pressured/timed-out build;
+this is a recovery guard, not an OS allocation guarantee. Start with one or two
+workers. Map/sprite pools recycle workers after eight jobs; template/texture
+caches evict by byte budget instead of clearing entire caches.
+
+Godot adapters may use `MapBuilder(..., cache_root=output_directory)` and the
+`ragx.incremental` helpers to record their own scene outputs. Writes must use the
+stable publication helpers, and all source reads must pass through the tracked
+source. Source archives must remain unchanged for the duration of one build.
+The adapter owns the import barrier: import only after conversion finishes.
+
+Run `python -m unittest discover -s tests -q` for cache invalidation, shared SPR,
+corrupt output, decryption, geometry and archive precedence checks.
+
+### Source license
+
 ragx's **source code** is released under the [MIT License](LICENSE). This license
 applies only to the code in this repository — **not** to any Ragnarok Online
 asset or to output produced from one (see [Disclaimer & Legal](#disclaimer--legal)).
+
+## Sound effects
+
+`ragx sounds --client C:/Gravity/Ragnarok --out <project>` exports every
+`data/wav/**/*.wav`, including skill sounds, using the normal archive overlay.
+Qualified paths are retained; bare filename aliases support script/ACT names.
+Collisions, source provenance, recovered truncated sources, and failures are
+recorded in `audio/sfx-export.json`. Any failed conversion returns nonzero.
+Legacy ADPCM and compressed WAV sources require FFmpeg on PATH and are converted
+to PCM without resampling. Existing PCM samples are preserved; editor metadata
+is removed so legacy text encoding cannot break runtime imports.
 
 ### Legacy model visibility
 

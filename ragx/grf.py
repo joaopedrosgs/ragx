@@ -238,7 +238,10 @@ def _decrypt_blocks(buffer: bytearray, only_header: bool, cycle: int, limit: int
     end = len(buffer) if limit is None else limit
     non_des = 0
     unpack = struct.Struct(">Q")
-    for block_number in range(end // _BLOCK):
+    # Header-only encryption never changes blocks after the first twenty.
+    # Visiting every remaining block made large textures cost linear Python time.
+    block_count = min(end // _BLOCK, _HEADER_BLOCKS) if only_header else end // _BLOCK
+    for block_number in range(block_count):
         start = block_number * _BLOCK
         des_block = block_number < _HEADER_BLOCKS or (not only_header and cycle and block_number % cycle == 0)
         if des_block:
@@ -390,6 +393,22 @@ class GrfArchive:
     def __contains__(self, path: str) -> bool:
         return normalize_path(path) in self.entries
 
+    def fingerprint(self, path: str) -> str:
+        """Hash stored entry bytes without decryption/decompression for build checks."""
+        import hashlib
+        entry = self.entries.get(normalize_path(path))
+        if entry is None:
+            raise FileNotFoundError(path)
+        start = HEADER_SIZE + entry.offset
+        end = start + entry.compressed_size_aligned
+        if start < HEADER_SIZE or end > len(self._mmap):
+            raise ValueError(f'invalid entry bounds: {path}')
+        sha = hashlib.sha256()
+        sha.update(str((entry.flags, entry.v1, entry.compressed_size, entry.uncompressed_size)).encode())
+        with memoryview(self._mmap) as view:
+            sha.update(view[start:end])
+        return sha.hexdigest()
+
     def namelist(self) -> list[str]:
         return list(self.entries)
 
@@ -444,6 +463,12 @@ class GrfStack:
             entry = archive.entries.get(key)
             if entry is not None:
                 return archive.read(key)
+        raise FileNotFoundError(path)
+
+    def fingerprint(self, path: str) -> str:
+        for archive in reversed(self.archives):
+            if path in archive:
+                return archive.fingerprint(path)
         raise FileNotFoundError(path)
 
     def __contains__(self, path: str) -> bool:

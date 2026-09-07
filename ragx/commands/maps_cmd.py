@@ -26,7 +26,7 @@ MAP_PREFIX = "data\\"
 
 def list_maps(client_dir: str) -> list[str]:
     """Every top-level ``.rsw`` map name (without path or extension)."""
-    archive = client_mod.open_archive(client_dir)
+    archive = client_mod.open_stack(client_dir)
     try:
         return sorted(
             name[len(MAP_PREFIX):-4]  # strip "data\" and ".rsw"
@@ -44,11 +44,12 @@ def convert_one(client_dir: str, map_name: str, out_dir: str,
     from ..map_builder import AssetSource, MapBuilder, MapHasNoTerrain
 
     builder = globals().get("_WORKER_BUILDER")
-    if builder is None or getattr(builder, "_client_dir", None) != client_dir:
-        archive = client_mod.open_archive(client_dir)
+    builder_key = (client_dir, out_dir)
+    if builder is None or getattr(builder, "_worker_key", None) != builder_key:
+        archive = client_mod.open_stack(client_dir)
         builder = MapBuilder(AssetSource(archive),
-                             texture_dir=os.path.join(out_dir, "textures"))
-        builder._client_dir = client_dir
+                             texture_dir=os.path.join(out_dir, "textures"), cache_root=out_dir)
+        builder._worker_key = builder_key
         globals()["_WORKER_BUILDER"] = builder
 
     out_path = os.path.join(out_dir, f"{map_name}.{fmt}")
@@ -98,7 +99,7 @@ def run(args) -> int:
     if args.processes > 1:
         import multiprocessing as mp
         jobs = [(args.client, m, out_dir, args.format) for m in maps]
-        with mp.Pool(args.processes) as pool:
+        with mp.Pool(args.processes, maxtasksperchild=8) as pool:
             for index, (name, message) in enumerate(
                     pool.imap_unordered(_convert_star, jobs, chunksize=1)):
                 print(f"[{index+1}/{len(maps)}] {name}: {message}", flush=True)

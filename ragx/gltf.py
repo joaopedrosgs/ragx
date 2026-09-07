@@ -3,7 +3,8 @@
 Builds a single-buffer binary glTF with embedded PNG textures. Only the
 features the converter needs are implemented: meshes with POSITION /
 NORMAL / TEXCOORD_0 / COLOR_0, node hierarchies (TRS or matrix),
-materials, samplers, animations and KHR_lights_punctual.
+    materials, samplers, animations, KHR_lights_punctual and
+    KHR_materials_unlit.
 """
 
 from __future__ import annotations
@@ -125,6 +126,10 @@ class GltfBuilder:
     def add_material(self, material: dict[str, Any]) -> int:
         self.json["materials"].append(material)
         return len(self.json["materials"]) - 1
+
+    def use_extension(self, name: str) -> None:
+        """Declare a glTF extension used by emitted objects or materials."""
+        self._extensions_used.add(name)
 
     # ---- scene graph -------------------------------------------------
 

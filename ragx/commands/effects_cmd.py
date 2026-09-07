@@ -40,6 +40,7 @@ import numpy as np
 
 from .. import client as client_mod
 from ..formats import str as strfmt
+from ..incremental import BuildCache, TrackedSource, save_png, write_json
 
 EFFECT_PREFIX = "data\\texture\\effect\\"
 MAX_SHEET_WIDTH = 2048
@@ -184,18 +185,16 @@ def export_one(effect, folder, grf, out_root: Path) -> str:
 
     png_path = out_root / (rel + ".png")
     png_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(atlas, "RGBA").save(png_path, format="PNG")
+    save_png(png_path, Image.fromarray(atlas, "RGBA"))
     json_path = out_root / (rel + ".json")
-    json_path.write_text(
-        json.dumps(meta, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8")
+    write_json(json_path, meta)
     return "ok"
 
 
 def run(args) -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    grf = client_mod.open_stack(args.client)
+    grf = TrackedSource(client_mod.open_stack(args.client))
     names = grf.namelist()
     if args.all:
         targets = sorted(n for n in names
@@ -222,10 +221,14 @@ def run(args) -> int:
 
     t0 = time.time()
     counts: dict[str, int] = {}
+    cache = BuildCache(out_root, grf)
     for done, name in enumerate(targets, 1):
         try:
-            parsed = strfmt.parse(grf.read(name))
-            status = export_one(name, parsed, grf, out_root)
+            builds = cache.builds
+            status = cache.run('effect:' + name, {}, lambda: export_one(
+                name, strfmt.parse(grf.read(name)), grf, out_root))
+            if cache.builds == builds:
+                status = 'cached'
         except Exception as exc:  # noqa: BLE001
             status = "FAILED"
             print(f"FAIL {name}: {exc}")
@@ -235,4 +238,5 @@ def run(args) -> int:
 
     grf.close()
     print(f"done in {time.time()-t0:.0f}s: {counts}")
+    print('RAGX_STATS ' + json.dumps(counts, sort_keys=True))
     return 1 if counts.get("FAILED") else 0

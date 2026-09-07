@@ -3,10 +3,13 @@
     ragx <command> [options]
 
 Commands
-    maps      convert maps / models to glTF 2.0
-    sprites   export SPR/ACT sprites to spritesheet PNG + JSON
-    effects   export STR skill/visual effects to atlas PNG + JSON
-    ui        export interface bitmaps to transparent PNG
+    maps             convert maps / models to glTF 2.0
+    sprites          export SPR/ACT sprites to spritesheet PNG + JSON
+    effects          export STR skill/visual effects to atlas PNG + JSON
+    effect-textures  export the loose textures the client's procedural effects
+                     (bolts, hit sparks, impact rings) are drawn from
+    cursors          export the animated mouse cursors (arrow, target ring, …)
+    ui               export interface bitmaps to transparent PNG
 
 The argument parser lives here (so ``ragx --help`` stays instant); the actual
 work is in ``ragx.commands.*`` and imported lazily once a command is chosen.
@@ -16,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import sys
 
 from . import __version__
@@ -23,9 +27,12 @@ from .client import DEFAULT_CLIENT
 
 # Per-command logic module; imported only when that command runs.
 _MODULES = {
+    "sounds": "ragx.commands.sounds_cmd",
     "maps": "ragx.commands.maps_cmd",
     "sprites": "ragx.commands.sprites_cmd",
     "effects": "ragx.commands.effects_cmd",
+    "effect-textures": "ragx.commands.effect_textures_cmd",
+    "cursors": "ragx.commands.cursors_cmd",
     "ui": "ragx.commands.ui_cmd",
 }
 
@@ -41,6 +48,9 @@ def _common_parent() -> argparse.ArgumentParser:
         "-o", "--out", metavar="DIR", default="ragx_out",
         help="output root; each command writes a named sub-folder under it "
              "(default: ./ragx_out)")
+    parent.add_argument('--memory-mb', type=int, default=4096, help='process-tree private memory ceiling')
+    parent.add_argument('--reserve-mb', type=int, default=2048, help='available RAM reserved for the desktop')
+    parent.add_argument('--timeout', type=float, default=7200, help='conversion timeout in seconds')
     return parent
 
 
@@ -115,6 +125,36 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true",
                    help="export every effect in the client")
 
+    # --- effect-textures --------------------------------------------------
+    p = sub.add_parser(
+        "effect-textures", parents=[common],
+        help="export the loose textures behind the client's procedural effects",
+        description="Some RO effects have no .str and no model — the client "
+                    "builds them in code from single textures (Cold Bolt rains "
+                    "'icearrow' billboards, then draws a 'ring_blue' impact "
+                    "ring). Export that loose art, magenta-keyed, to "
+                    "<out>/effects/tex/. Defaults to the textures directly "
+                    "under the effect dir, which is where the procedural art "
+                    "lives; --all walks the whole tree.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("textures", nargs="*", metavar="NAME",
+                   help="texture names relative to texture/effect/ (extension "
+                        "optional; matched by full path or basename)")
+    p.add_argument("--all", action="store_true",
+                   help="export the whole effect texture tree, not just loose ones")
+
+    # --- cursors ----------------------------------------------------------
+    p = sub.add_parser(
+        "cursors", parents=[common],
+        help="export the animated mouse cursors",
+        description="Export data\\sprite\\cursors.spr/.act — one animated cursor "
+                    "per state (normal arrow, talk hand, skill-target ring, …) — "
+                    "to <out>/cursor/<name>/ as frame PNGs plus a JSON with the "
+                    "frame delay and click hotspot.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--only", metavar="NAME",
+                   help="export just one cursor state (e.g. target)")
+
     # --- ui ---------------------------------------------------------------
     p = sub.add_parser(
         "ui", parents=[common],
@@ -128,6 +168,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "of the base interface")
     p.add_argument("--groups", nargs="*", metavar="GROUP", default=None,
                    help="limit to specific interface groups (default: all)")
+
+    sub.add_parser("sounds", parents=[common],
+                   help="export all sound effects to PCM WAV under audio/sfx")
 
     return parser
 
@@ -146,6 +189,14 @@ def main(argv: list[str] | None = None) -> int:
     _force_utf8()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if min(args.memory_mb, args.reserve_mb, args.timeout, getattr(args, 'processes', 1)) <= 0:
+        parser.error('workers and budgets must be positive')
+    from .process_budget import supervise, worker_limit
+    if not os.environ.get('RAGX_SUPERVISED') and not getattr(args, 'list', False):
+        return supervise([sys.executable, '-m', 'ragx', *(sys.argv[1:] if argv is None else argv)],
+                         memory_mb=args.memory_mb, reserve_mb=args.reserve_mb, timeout=args.timeout)
+    if hasattr(args, 'processes'):
+        args.processes = worker_limit(args.processes, args.memory_mb, args.reserve_mb)
     module = importlib.import_module(_MODULES[args.command])
     return module.run(args) or 0
 

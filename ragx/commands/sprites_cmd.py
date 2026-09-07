@@ -88,7 +88,8 @@ def pack_sheet(frames: list[np.ndarray]) -> tuple[np.ndarray, list[list[int]]]:
         x += w + 2 * PADDING
         shelf_height = max(shelf_height, h + 2 * PADDING)
     height = y + shelf_height
-
+    if width * max(height, 1) > 64 * 1024**2:
+        raise ValueError('sprite sheet exceeds the 64 megapixel allocation limit')
     sheet = np.zeros((max(height, 1), width, 4), dtype=np.uint8)
     for index, frame in enumerate(frames):
         rx, ry, w, h = rects[index]
@@ -143,43 +144,8 @@ def export_one(grf, act_name: str, spr_name: str, out_root: Path) -> str:
     .act files (robes ship one sheet per robe and an .act per job); the
     sheet PNG is then written once at the .spr's own path and every
     .json points at it via the "sheet" field."""
-    from PIL import Image
-
-    from ..formats import act as act_format
-    from ..formats import spr as spr_format
-
-    parsed_spr = spr_format.parse(grf.read(spr_name))
-    parsed_act = act_format.parse(grf.read(act_name))
-
-    frames = decode_spr_frames(parsed_spr)
-    if not frames:
-        return "empty"
-    sheet, rects = pack_sheet(frames)
-
-    sheet_rel = _rel(spr_name)
-    meta = act_to_meta(parsed_act, len(frames), len(parsed_spr.indexed_frames))
-    meta["w"] = int(sheet.shape[1])
-    meta["h"] = int(sheet.shape[0])
-    meta["frames"] = rects
-    meta["indexed_count"] = len(parsed_spr.indexed_frames)
-    meta["sheet"] = sheet_rel + ".png"
-
-    png_path = out_root / (sheet_rel + ".png")
-    png_path.parent.mkdir(parents=True, exist_ok=True)
-    if not png_path.exists():  # shared sheets: first writer wins
-        tmp_path = png_path.with_suffix(f".{os.getpid()}.tmp")
-        Image.fromarray(sheet, "RGBA").save(tmp_path, format="PNG")
-        try:
-            os.replace(tmp_path, png_path)
-        except OSError:
-            tmp_path.unlink(missing_ok=True)
-
-    json_path = out_root / (_rel(act_name) + ".json")
-    json_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(
-        json.dumps(meta, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8")
-    return "ok"
+    from ..sprite_build import export_sprite
+    return export_sprite(grf, act_name, spr_name, out_root)
 
 
 def _worker(job: tuple[str, list[tuple[str, str]], str]) -> list[tuple[str, str]]:
@@ -187,7 +153,7 @@ def _worker(job: tuple[str, list[tuple[str, str]], str]) -> list[tuple[str, str]
 
     grf = globals().get("_WORKER_GRF")
     if grf is None or getattr(grf, "_client_dir", None) != client_dir:
-        grf = client_mod.open_archive(client_dir)
+        grf = client_mod.open_stack(client_dir)
         grf._client_dir = client_dir
         globals()["_WORKER_GRF"] = grf
 
@@ -217,7 +183,7 @@ def resolve_spr(act_name: str, spr_set: set[str]) -> str | None:
 def run(args) -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    archive = client_mod.open_archive(args.client)
+    archive = client_mod.open_stack(args.client)
     names = archive.namelist()
     spr_set = {n for n in names if n.endswith(".spr")}
     if args.all:
@@ -231,7 +197,12 @@ def run(args) -> int:
     else:
         archive.close()
         sys.exit("no sprites given (pass sprite paths or --all)")
-    archive.close()
+    if args.processes > 1:
+        archive.close()
+    else:
+        # The single-worker path can reuse the index it just built for discovery.
+        archive._client_dir = args.client
+        globals()['_WORKER_GRF'] = archive
 
     targets = []
     no_spr = 0
@@ -253,7 +224,20 @@ def run(args) -> int:
     failures: list[tuple[str, str]] = []
 
     batch_size = 100
-    batches = [targets[i: i + batch_size] for i in range(0, len(targets), batch_size)]
+    # All ACTs sharing a sheet go to one worker, including large robe groups.
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for target in targets:
+        groups[target[1]].append(target)
+    batches = []
+    batch = []
+    for group in groups.values():
+        if batch and len(batch) + len(group) > batch_size:
+            batches.append(batch)
+            batch = []
+        batch.extend(group)
+    if batch:
+        batches.append(batch)
     total_batches = len(batches)
 
     def consume(batch_results: list[tuple[str, str]], done: int) -> None:
@@ -269,7 +253,7 @@ def run(args) -> int:
     if args.processes > 1:
         import multiprocessing as mp
         jobs = [(args.client, batch, out_root) for batch in batches]
-        with mp.Pool(args.processes) as pool:
+        with mp.Pool(args.processes, maxtasksperchild=8) as pool:
             for done, batch_results in enumerate(
                     pool.imap_unordered(_worker, jobs, chunksize=1), 1):
                 consume(batch_results, done)
@@ -278,6 +262,10 @@ def run(args) -> int:
             consume(_worker((args.client, batch, out_root)), done)
 
     print(f"\ndone in {time.time()-t0:.0f}s: {counts}")
+    print('RAGX_STATS ' + json.dumps(counts, sort_keys=True))
+    if args.processes == 1:
+        archive.close()
+        globals().pop('_WORKER_GRF', None)
     for name, status in failures[:10]:
         print(f"\n{name}:\n{status[:500]}")
     return 1 if failures else 0
