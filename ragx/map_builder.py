@@ -2,8 +2,8 @@
 
 Coordinate system of the output: glTF standard (right-handed, +Y up),
 with -Z pointing to the map's north and the terrain centered on the
-origin. One world unit = 1/10 of a GND cube = half a GAT tile... in
-other words the original client world units are kept unchanged.
+origin. By default one world unit = 1/10 of a GND cube = half a GAT tile;
+``world_scale`` can bake a different engine unit convention.
 
 Scene structure:
     terrain            (one mesh, one primitive per terrain texture)
@@ -99,10 +99,16 @@ class MapBuilder:
     def __init__(self, source: AssetSource, texture_dir: str | os.PathLike | None = None,
                  *, world_scale: float = 1.0, cache_root: str | os.PathLike | None = None):
         """`texture_dir`: where shared PNG files go for .gltf output (one
-        file per unique texture, reused by every map that references it)."""
-        if not math.isfinite(world_scale) or world_scale <= 0:
-            raise ValueError("world_scale must be finite and positive")
-        self.world_scale = world_scale
+        file per unique texture, reused by every map that references it).
+
+        `world_scale` is baked into every length and translation while leaving
+        normals, rotations and ratio scales untouched. The default preserves
+        native RO units; engines can request their own unit convention without
+        post-processing generated glTFs.
+        """
+        if not math.isfinite(world_scale) or world_scale <= 0.0:
+            raise ValueError("world_scale must be a finite positive number")
+        self.world_scale = float(world_scale)
         self.source = source
         self.build_cache = None
         if cache_root is not None:
@@ -404,8 +410,8 @@ class MapBuilder:
 
         return {
             "type": plane.water_type,
-            "level": -plane.level,
-            "waveHeight": plane.wave_height,
+            "level": -plane.level * self.world_scale,
+            "waveHeight": plane.wave_height * self.world_scale,
             "waveSpeed": plane.wave_speed,
             "wavePitch": plane.wave_pitch,
             "cycleInterval": max(plane.texture_cycling_interval, 1),
@@ -443,7 +449,11 @@ class MapBuilder:
             if existing is None:
                 existing = len(vertices)
                 lookup[key] = existing
-                vertices.append((x_tile * 5.0 - offset_x, -height, -(z_tile * 5.0 - offset_z)))
+                vertices.append((
+                    (x_tile * 5.0 - offset_x) * self.world_scale,
+                    -height * self.world_scale,
+                    -(z_tile * 5.0 - offset_z) * self.world_scale,
+                ))
             return existing
 
         for index, (h_sw, h_se, h_nw, h_ne, tile_type) in enumerate(gat.tiles):
@@ -561,7 +571,7 @@ class MapBuilder:
         else:
             try:
                 model = rsm_format.parse(raw)
-                template = build_template(model, model_name)
+                template = build_template(model, model_name, self.world_scale)
             except Exception as error:  # noqa: BLE001
                 stats.model_errors.append(f"{model_name}: {error!r}")
         self.template_cache[key] = template
@@ -574,7 +584,8 @@ class MapBuilder:
         received animation channels."""
         # Instance transform (korangar Model::get_model_matrix, mirrored).
         px, py, pz = instance.position
-        translation = (px, -py, -pz)
+        translation = tuple(component * self.world_scale
+                            for component in (px, -py, -pz))
         rx, ry, rz = (math.radians(a) for a in instance.rotation)
         rotation_matrix = mu.euler_rotation_matrix_zxy(rx, ry, rz)
         rotation = mu.matrix_to_quat(mu.mirror_z_matrix(rotation_matrix))
@@ -766,7 +777,9 @@ class MapBuilder:
                     )
 
                 positions = [
-                    (cx * 10.0 - offset_x, -cy, -(cz * 10.0 - offset_z))
+                    ((cx * 10.0 - offset_x) * self.world_scale,
+                     -cy * self.world_scale,
+                     -(cz * 10.0 - offset_z) * self.world_scale)
                     for cx, cy, cz in corners
                 ]
 
@@ -866,8 +879,8 @@ class MapBuilder:
         for plane_index, plane in enumerate(planes):
             cell_u = plane_index % grid_u
             cell_v = plane_index // grid_u
-            level = -plane.level
-            wave = plane.wave_height
+            level = -plane.level * self.world_scale
+            wave = plane.wave_height * self.world_scale
             used_types.add(plane.water_type)
             repeat = 16.0 if plane.water_type in (4, 6) else 4.0
 
@@ -879,16 +892,17 @@ class MapBuilder:
             for tile_y in range(y_start, y_end):
                 for tile_x in range(x_start, x_end):
                     cube = gnd.cubes[tile_x + tile_y * width]
-                    lowest = min(-cube.h_sw, -cube.h_se, -cube.h_nw, -cube.h_ne)
+                    lowest = min(-cube.h_sw, -cube.h_se, -cube.h_nw,
+                                 -cube.h_ne) * self.world_scale
                     if lowest >= level + wave:
                         continue
                     base = len(positions)
                     for dy in (0, 1):
                         for dx in (0, 1):
                             positions.append((
-                                (tile_x + dx) * 10.0 - offset_x,
+                                ((tile_x + dx) * 10.0 - offset_x) * self.world_scale,
                                 level,
-                                -((tile_y + dy) * 10.0 - offset_z),
+                                -((tile_y + dy) * 10.0 - offset_z) * self.world_scale,
                             ))
                             uvs.append(((tile_x + dx) / repeat, (tile_y + dy) / repeat))
                     indices.extend((base, base + 1, base + 2, base + 1, base + 3, base + 2))
@@ -964,7 +978,7 @@ class MapBuilder:
         return builder.add_node(
             name="sun",
             rotation=rotation,
-            translation=(0.0, 500.0, 0.0),
+            translation=(0.0, 500.0 * self.world_scale, 0.0),
             extensions={"KHR_lights_punctual": {"light": light_index}},
         )
 

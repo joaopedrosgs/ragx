@@ -5,9 +5,10 @@ import unittest
 
 import numpy as np
 
-from ragx.formats.rsm import Face
-from ragx.map_builder import _smoothed_normals, _terrain_bucket_normals
-from ragx.model_builder import _smooth_model_normals
+from ragx import mathutil
+from ragx.formats.rsm import Face, Node
+from ragx.map_builder import AssetSource, MapBuilder, _smoothed_normals, _terrain_bucket_normals
+from ragx.model_builder import _bake_mesh, _smooth_model_normals
 
 
 class TerrainNormalTests(unittest.TestCase):
@@ -67,6 +68,47 @@ class ModelNormalTests(unittest.TestCase):
         np.testing.assert_allclose(
             normals[2][0], np.asarray((0.0, 1.0, 1.0)) / math.sqrt(2.0),
             atol=1e-6)
+
+    def test_world_scale_changes_positions_but_not_normals(self) -> None:
+        node = Node(
+            name="triangle",
+            parent_name="",
+            texture_indices=[0],
+            texture_names=[],
+            offset_matrix=(1.0, 0.0, 0.0,
+                           0.0, 1.0, 0.0,
+                           0.0, 0.0, 1.0),
+            translation1=(0.0, 0.0, 0.0),
+            translation2=(0.0, 0.0, 0.0),
+            rotation_angle=0.0,
+            rotation_axis=(0.0, 1.0, 0.0),
+            scale=(1.0, 1.0, 1.0),
+            vertices=[(0.0, 0.0, 0.0), (5.0, 0.0, 0.0),
+                      (0.0, 5.0, 0.0)],
+            uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            uv_colors=[],
+            faces=[Face((0, 1, 2), (0, 1, 2), 0, 0, (0,))],
+            scale_keyframes=[],
+            rotation_keyframes=[],
+            translation_keyframes=[],
+        )
+
+        native = _bake_mesh(node, mathutil.IDENTITY, ["test.bmp"], False)[0]
+        scaled = _bake_mesh(node, mathutil.IDENTITY, ["test.bmp"], False,
+                            world_scale=0.2)[0]
+
+        np.testing.assert_allclose(scaled.positions, native.positions * 0.2,
+                                   atol=1e-6)
+        np.testing.assert_allclose(scaled.normals, native.normals, atol=1e-6)
+
+
+class WorldScaleTests(unittest.TestCase):
+    def test_map_builder_rejects_invalid_scale(self) -> None:
+        source = AssetSource(object())
+        for scale in (0.0, -1.0, float("inf"), float("nan")):
+            with self.subTest(scale=scale):
+                with self.assertRaises(ValueError):
+                    MapBuilder(source, world_scale=scale)
 
 
 if __name__ == "__main__":
