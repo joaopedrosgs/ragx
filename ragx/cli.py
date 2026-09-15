@@ -11,6 +11,7 @@ Commands
     cursors          export the animated mouse cursors (arrow, target ring, …)
     ui               export interface bitmaps to transparent PNG
     status-icons     export status (EFST) icons and the EFST id -> icon table
+    hat-effects      export the costume effect table (hat-effect id -> art)
 
 The argument parser lives here (so ``ragx --help`` stays instant); the actual
 work is in ``ragx.commands.*`` and imported lazily once a command is chosen.
@@ -36,6 +37,7 @@ _MODULES = {
     "cursors": "ragx.commands.cursors_cmd",
     "ui": "ragx.commands.ui_cmd",
     "status-icons": "ragx.commands.status_icons_cmd",
+    "hat-effects": "ragx.commands.hat_effects_cmd",
 }
 
 
@@ -175,6 +177,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("sounds", parents=[common],
                    help="export all sound effects to PCM WAV under audio/sfx")
+
+    # --- hat-effects ------------------------------------------------------
+    sub.add_parser(
+        "hat-effects", parents=[common],
+        help="export the costume effect table (hat-effect id -> art)",
+        description="Run the client's hateffectinfo.lub and write "
+                    "<out>/data/hat_effects.json: for each hat-effect id the "
+                    "server sends in ZC_EQUIPMENT_EFFECT, the STR (named as the "
+                    "effects command exports it) or effect-table id the client "
+                    "draws, with its offsets and ordering flags. Needs lupa.")
 
     # --- status-icons -----------------------------------------------------
     p = sub.add_parser(

@@ -12,6 +12,7 @@ no separate "extract" step — and gives you:
 | `ragx sounds` | all GRF sound effects to PCM WAV | `audio/sfx/` plus export report |
 | `ragx ui` | interface bitmaps → **transparent PNG** | magenta-keyed `.png` + theme textures |
 | `ragx status-icons` | status (EFST) icons + the EFST id → icon table | `icons/status/*.png` + `icons/status.json` |
+| `ragx hat-effects` | the costume effect table: hat-effect id → STR or effect id | `data/hat_effects.json` |
 
 Built for and tested against the **LATAM client** (`C:\Gravity\Ragnarok`), but
 the parsers cover every GRF/format version found in modern and classic clients.
@@ -121,6 +122,9 @@ ragx ui --skin "America Latina"           # overlay a named client skin
 
 # Status icons → PNG + EFST id table (needs lupa)
 ragx status-icons --robrowser H:/RobrowserLegacy
+
+# Costume effects → hat-effect id table (needs lupa)
+ragx hat-effects
 
 # Point at a client installed somewhere else
 ragx maps prontera --client "D:/Games/RO" -o D:/ro_export
@@ -273,6 +277,28 @@ ragx status-icons [--robrowser DIR] [--text LOCALE=ROOT[:ENCODING] ...] [common 
 ```sh
 ragx status-icons                          # client-listed statuses only
 ragx status-icons --robrowser H:/RobrowserLegacy -o D:/game   # → D:/game/icons/status/
+```
+
+### `ragx hat-effects`
+
+Export the table the client draws costume effects from. `ZC_EQUIPMENT_EFFECT`
+sends bare hat-effect ids; the client looks each up in its own `hatEffectTable`
+(`hateffectinfo.lub`, names from `hateffectids.lub`) and draws either an STR from
+`data\texture\effect\` or an entry of its effect table. The JSON is keyed by that
+number, as the client reads it — server-side constant names drift from the
+client's, but only the number is on the wire. Each row carries `str` (the name
+`ragx effects` exports the STR under) or `effect_id`, the raw `pos`/`pos_x`
+offsets, and the client's flags (`before`, `ignore_riding`, `head`,
+`shrink_size`, `shrink_position`, `doram_y`, `pair`). Needs `lupa`.
+
+```
+ragx hat-effects [common options]
+```
+
+**Examples**
+
+```sh
+ragx hat-effects -o D:/game                # → D:/game/data/hat_effects.json
 ```
 
 ---
