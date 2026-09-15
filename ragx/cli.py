@@ -191,6 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--robrowser", metavar="DIR", default=None,
                    help="roBrowser Legacy checkout, for the classic icons the "
                         "client executable hardcodes (src/DB/Status/)")
+    p.add_argument("--text", action="append", metavar="LOCALE=ROOT[:ENCODING]",
+                   default=None,
+                   help="a language root for the tooltip text, repeatable "
+                        "(default: pt_BR=data, en=data\\english, es=data\\spanish, "
+                        "all cp1252)")
 
     return parser
 

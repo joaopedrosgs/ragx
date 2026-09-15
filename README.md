@@ -253,15 +253,20 @@ EFST id (the number the server sends) to its icon. Newer statuses are listed in
 the client's own `stateiconimginfo.lub`; the classic ones (Blessing, Increase
 AGI, Angelus, …) are hardcoded in the client executable, so they come from a
 roBrowser Legacy checkout when one is given. The client table always wins, and
-every row records its `source`. Needs `lupa` (`pip install -e .[lua]`).
+every row records its `source`. It also exports each status's tooltip text from
+`stateiconinfo.lub`, per language root, to `icons/status_text.json`: the lines in
+client order with their colours, and which line takes the time left (decoded as
+UTF-8 when valid, else in the root's encoding). Needs
+`lupa` (`pip install -e .[lua]`).
 
 ```
-ragx status-icons [--robrowser DIR] [common options]
+ragx status-icons [--robrowser DIR] [--text LOCALE=ROOT[:ENCODING] ...] [common options]
 ```
 
 | Option | Default | Description |
 |---|---|---|
 | `--robrowser DIR` | none | roBrowser Legacy checkout; fills the hardcoded classic icons from `src/DB/Status/` |
+| `--text LOCALE=ROOT[:ENCODING]` | `pt_BR=data`, `en=data\english`, `es=data\spanish` (cp1252) | a Lua root to read tooltip text from; repeat for several languages |
 
 **Examples**
 
@@ -295,6 +300,7 @@ ragx_out/
   icons/
     status/블레싱.png          32x32 status icons, one file per texture
     status.json            {"<efst>": {icon, priority, source}}
+    status_text.json       {"<locale>": {"<efst>": {timed, time_line, lines}}}
 ```
 
 In `gltf` mode the textures are de-duplicated in the shared `textures/` folder,

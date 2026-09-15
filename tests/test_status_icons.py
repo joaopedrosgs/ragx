@@ -1,7 +1,8 @@
 import struct
 import unittest
 
-from ragx.commands.status_icons_cmd import decode_js_string, icon_file, merge, parse_robrowser
+from ragx.commands.status_icons_cmd import (decode_js_string, icon_file, merge,
+                                           parse_robrowser, parse_text_roots, status_texts)
 from ragx.lua import rebase_chunk
 
 
@@ -34,6 +35,43 @@ class RoBrowserStatusTableTests(unittest.TestCase):
                      {10: 'rb_blessing.tga', 12: 'rb_agi.tga'})
         self.assertEqual(rows[12], {'file': 'client_agi.tga', 'priority': 1, 'source': 'client'})
         self.assertEqual(rows[10], {'file': 'rb_blessing.tga', 'priority': 0, 'source': 'robrowser'})
+
+
+class StatusTextTests(unittest.TestCase):
+    def test_lines_keep_order_colour_and_the_time_slot(self):
+        # Shaped like the LATAM client's StateIconList: Windows-1252 bytes keys.
+        table = {
+            113: {b'haveTimeLimit': 1, b'posTimeLimitStr': 2, b'descript': {
+                3: {1: b'ATQM Amplificado'},
+                1: {1: 'Amplificação de Magia'.encode('cp1252'), 2: {1: 155, 2: 202, 3: 155}},
+                2: {1: b'%s', 2: {1: 255, 2: 176, 3: 98}},
+            }},
+            824: {b'haveTimeLimit': 0},
+        }
+        self.assertEqual(status_texts(table, 'cp1252'), {113: {
+            'timed': True, 'time_line': 1,
+            'lines': [['Amplificação de Magia', [155, 202, 155]],
+                      ['%s', [255, 176, 98]],
+                      ['ATQM Amplificado', None]],
+        }})
+
+    def test_utf8_text_decodes_even_under_a_single_byte_root(self):
+        # The LATAM data root is UTF-8; read as cp1252 it would be "BÃªnÃ§Ã£o".
+        table = {10: {b'haveTimeLimit': 1, b'posTimeLimitStr': 2,
+                      b'descript': {1: {1: 'Bênção'.encode('utf-8')}}}}
+        self.assertEqual(status_texts(table, 'cp1252')[10]['lines'][0][0], 'Bênção')
+
+    def test_an_untimed_status_has_no_time_line(self):
+        table = {9: {b'haveTimeLimit': 0, b'posTimeLimitStr': 2,
+                     b'descript': {1: {1: b'Angelus'}}}}
+        self.assertEqual(status_texts(table, 'cp1252')[9]['time_line'], -1)
+
+    def test_text_roots_default_to_the_latam_layout_and_parse_overrides(self):
+        self.assertEqual(parse_text_roots(None)['en'], ('data\\english', 'cp1252'))
+        self.assertEqual(parse_text_roots(['ko=data:cp949', 'en=data\\english']),
+                         {'ko': ('data', 'cp949'), 'en': ('data\\english', 'cp1252')})
+        with self.assertRaises(ValueError):
+            parse_text_roots(['nonsense'])
 
 
 def _chunk(size_t: int, strings: list[bytes]) -> bytes:
