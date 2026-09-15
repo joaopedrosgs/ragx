@@ -190,6 +190,12 @@ def _corners(xy: tuple[float, ...], angle_deg: float, position: tuple[float, flo
     TL, TR, BR, BL (korangar effect.rs). Each corner is rotated about the
     layer centre (clockwise ``angle_deg``) then translated by ``position``;
     finally we subtract EFFECT_ORIGIN so (0, 0) is centre.
+
+    Clockwise ON SCREEN, as the client turns a layer (roBrowser Legacy:
+    ``rotateZ(-angle)`` in its y-up space). In this y-down canvas that is the
+    plain rotation matrix; the inverse turned every angled layer the other way,
+    so Meteor Storm's tail, authored at 30 degrees to trail its fall, crossed
+    its own path.
     """
     order = (0, 1, 2, 3)
     rad = math.radians(angle_deg)
@@ -197,9 +203,8 @@ def _corners(xy: tuple[float, ...], angle_deg: float, position: tuple[float, flo
     out = []
     for i in order:
         cx, cy = xy[i], xy[i + 4]
-        # clockwise rotation in a y-down space
-        rx = cx * cos_a + cy * sin_a
-        ry = -cx * sin_a + cy * cos_a
+        rx = cx * cos_a - cy * sin_a
+        ry = cx * sin_a + cy * cos_a
         out.append(
             (
                 rx + position[0] - EFFECT_ORIGIN[0],
