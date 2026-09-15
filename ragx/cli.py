@@ -10,6 +10,7 @@ Commands
                      (bolts, hit sparks, impact rings) are drawn from
     cursors          export the animated mouse cursors (arrow, target ring, …)
     ui               export interface bitmaps to transparent PNG
+    status-icons     export status (EFST) icons and the EFST id -> icon table
 
 The argument parser lives here (so ``ragx --help`` stays instant); the actual
 work is in ``ragx.commands.*`` and imported lazily once a command is chosen.
@@ -34,6 +35,7 @@ _MODULES = {
     "effect-textures": "ragx.commands.effect_textures_cmd",
     "cursors": "ragx.commands.cursors_cmd",
     "ui": "ragx.commands.ui_cmd",
+    "status-icons": "ragx.commands.status_icons_cmd",
 }
 
 
@@ -173,6 +175,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("sounds", parents=[common],
                    help="export all sound effects to PCM WAV under audio/sfx")
+
+    # --- status-icons -----------------------------------------------------
+    p = sub.add_parser(
+        "status-icons", parents=[common],
+        help="export status (EFST) icons and the EFST id -> icon table",
+        description="Export the icons the client shows for timed statuses "
+                    "(Blessing, Increase AGI, ...) from data\\texture\\effect\\ "
+                    "to <out>/icons/status/, plus <out>/icons/status.json mapping "
+                    "each EFST id to its icon. Newer statuses come from the "
+                    "client's stateiconimginfo.lub; the classic ones the client "
+                    "executable hardcodes need --robrowser. Runs the client's "
+                    "Lua tables, so it needs lupa (pip install ragx[lua]).",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--robrowser", metavar="DIR", default=None,
+                   help="roBrowser Legacy checkout, for the classic icons the "
+                        "client executable hardcodes (src/DB/Status/)")
 
     return parser
 

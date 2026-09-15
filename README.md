@@ -11,6 +11,7 @@ no separate "extract" step — and gives you:
 | `ragx effects` | STR skill / visual effects ("spells") → **atlas + keyframes** | packed `.png` + `.json` |
 | `ragx sounds` | all GRF sound effects to PCM WAV | `audio/sfx/` plus export report |
 | `ragx ui` | interface bitmaps → **transparent PNG** | magenta-keyed `.png` + theme textures |
+| `ragx status-icons` | status (EFST) icons + the EFST id → icon table | `icons/status/*.png` + `icons/status.json` |
 
 Built for and tested against the **LATAM client** (`C:\Gravity\Ragnarok`), but
 the parsers cover every GRF/format version found in modern and classic clients.
@@ -75,6 +76,8 @@ All assets © Gravity Co., Ltd.</sub>
 
 - **Python 3.10+**
 - `numpy` and `Pillow` (installed automatically by `pip`)
+- *Optional:* `lupa`, for commands that execute the client's compiled Lua
+  tables (`ragx status-icons`): `pip install -e .[lua]`
 - A **Ragnarok Online client install** you own, containing `data.grf`
   (default location `C:\Gravity\Ragnarok`)
 - *Optional:* [Blender](https://www.blender.org/) 4.x or any glTF viewer to open
@@ -115,6 +118,9 @@ ragx effects --all                        # every STR effect in the client
 # UI → transparent PNG
 ragx ui                                   # base interface
 ragx ui --skin "America Latina"           # overlay a named client skin
+
+# Status icons → PNG + EFST id table (needs lupa)
+ragx status-icons --robrowser H:/RobrowserLegacy
 
 # Point at a client installed somewhere else
 ragx maps prontera --client "D:/Games/RO" -o D:/ro_export
@@ -240,6 +246,30 @@ ragx ui --skin "America Latina"            # overlay a client skin
 ragx ui --groups basic_interface           # only this group
 ```
 
+### `ragx status-icons`
+
+Export the icons the client shows for timed statuses, plus a table mapping each
+EFST id (the number the server sends) to its icon. Newer statuses are listed in
+the client's own `stateiconimginfo.lub`; the classic ones (Blessing, Increase
+AGI, Angelus, …) are hardcoded in the client executable, so they come from a
+roBrowser Legacy checkout when one is given. The client table always wins, and
+every row records its `source`. Needs `lupa` (`pip install -e .[lua]`).
+
+```
+ragx status-icons [--robrowser DIR] [common options]
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--robrowser DIR` | none | roBrowser Legacy checkout; fills the hardcoded classic icons from `src/DB/Status/` |
+
+**Examples**
+
+```sh
+ragx status-icons                          # client-listed statuses only
+ragx status-icons --robrowser H:/RobrowserLegacy -o D:/game   # → D:/game/icons/status/
+```
+
 ---
 
 ## Output layout
@@ -262,6 +292,9 @@ ragx_out/
   ui/
     skin/basic_interface/  keyed window/button/gauge PNGs
     skin/theme/            composited window_frame / button_* / titlebar PNGs
+  icons/
+    status/블레싱.png          32x32 status icons, one file per texture
+    status.json            {"<efst>": {icon, priority, source}}
 ```
 
 In `gltf` mode the textures are de-duplicated in the shared `textures/` folder,
