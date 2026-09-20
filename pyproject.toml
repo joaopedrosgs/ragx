@@ -31,6 +31,7 @@ dependencies = [
 [project.optional-dependencies]
 # Commands that execute the client's compiled Lua tables (ragx status-icons).
 lua = ["lupa>=2.0"]
+project = ["lupa>=2.0"]
 
 [project.urls]
 Homepage = "https://github.com/joaopedrosgs/ragx"

@@ -50,3 +50,11 @@ def open_stack(client: str | os.PathLike) -> GrfStack:
         if candidate.is_file():
             paths.append(candidate)
     return GrfStack(paths)
+
+
+def client_grf_paths(client: str | os.PathLike) -> list[str]:
+    """Return the archive stack paths in the same precedence order as open_stack."""
+    paths = [_require_main(client)]
+    paths.extend(Path(client) / extra for extra in EXTRA_GRFS
+                 if (Path(client) / extra).is_file())
+    return [str(path) for path in paths]

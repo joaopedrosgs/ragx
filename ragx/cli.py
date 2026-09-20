@@ -38,6 +38,7 @@ _MODULES = {
     "ui": "ragx.commands.ui_cmd",
     "status-icons": "ragx.commands.status_icons_cmd",
     "hat-effects": "ragx.commands.hat_effects_cmd",
+    "project": "ragx.project.pipeline",
 }
 
 
@@ -208,6 +209,30 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a language root for the tooltip text, repeatable "
                         "(default: pt_BR=data, en=data\\english, es=data\\spanish, "
                         "all cp1252)")
+
+    # --- complete Godot project ------------------------------------------
+    p = sub.add_parser(
+        "project",
+        help="generate the complete ragnadot Godot project",
+        description="Extract, convert, and generate every runtime input needed "
+                    "by the ragnadot Godot client.")
+    p.add_argument("--client", required=True,
+                   help="client directory containing data.grf")
+    p.add_argument("--project", required=True,
+                   help="ragnadot Godot project root")
+    p.add_argument("--rathena", required=True,
+                   help="matching rAthena source checkout")
+    p.add_argument("--mode", choices=("lite", "full"), default="lite",
+                   help="lite exports the playable region; full exports every map")
+    p.add_argument("--processes", type=int, default=2,
+                   help="parallel sprite/map workers (default: 2)")
+    p.add_argument("--skip-assets", action="store_true",
+                   help="regenerate tables and collision data only")
+    p.add_argument("--english-client")
+    p.add_argument("--robrowser")
+    p.add_argument('--memory-mb', type=int, default=4096)
+    p.add_argument('--reserve-mb', type=int, default=2048)
+    p.add_argument('--timeout', type=float, default=7200)
 
     return parser
 
