@@ -5,20 +5,20 @@ import unittest
 from pathlib import Path
 
 from ragx.cli import build_parser
-from ragx.project import pipeline
+from ragx.exporters.godot import pipeline
 
 
-class ProjectPipelineTest(unittest.TestCase):
-    def test_project_command_exposes_only_lite_and_full(self) -> None:
+class GodotExporterTest(unittest.TestCase):
+    def test_godot_exporter_exposes_only_lite_and_full(self) -> None:
         parser = build_parser()
         args = parser.parse_args([
-            "project", "--client", "client", "--project", "game",
+            "export", "godot", "--client", "client", "--project", "game",
             "--rathena", "server",
         ])
         self.assertEqual(args.mode, "lite")
         with self.assertRaises(SystemExit):
             parser.parse_args([
-                "project", "--client", "client", "--project", "game",
+                "export", "godot", "--client", "client", "--project", "game",
                 "--rathena", "server", "--mode", "starter",
             ])
 
@@ -27,7 +27,7 @@ class ProjectPipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             args = parser.parse_args([
-                "project", "--client", str(root / "client"),
+                "export", "godot", "--client", str(root / "client"),
                 "--project", str(root / "game"),
                 "--rathena", str(root / "server"),
             ])

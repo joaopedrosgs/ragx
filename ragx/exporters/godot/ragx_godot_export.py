@@ -23,7 +23,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path.cwd()
-RAGX_ROOT = Path(__file__).resolve().parents[2]
+RAGX_ROOT = Path(__file__).resolve().parents[3]
 WORLD_SCALE = 0.2
 
 
@@ -94,7 +94,7 @@ def _map_worker(job: tuple[str, str, str, str]) -> tuple[str, str]:
     try:
         builder = _worker_builder(ragx_repo, client_dir, assets_dir)
         from ragx.formats import gat, rsw
-        from ragx.project.godot_export import export_map
+        from ragx.exporters.godot.godot_export import export_map
 
         started = time.time()
         cache = builder.build_cache
@@ -216,7 +216,7 @@ def main() -> int:
                          memory_mb=args.memory_mb, reserve_mb=args.reserve_mb, timeout=args.timeout)
     assets_dir = args.assets.resolve()
     assets_dir.mkdir(parents=True, exist_ok=True)
-    from ragx.project.godot_export import prepare_project
+    from ragx.exporters.godot.godot_export import prepare_project
 
     prepare_project(assets_dir)
     maps = args.maps or _available_maps(ragx_repo, args.client)

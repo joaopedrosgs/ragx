@@ -13,7 +13,7 @@ no separate "extract" step — and gives you:
 | `ragx ui` | interface bitmaps → **transparent PNG** | magenta-keyed `.png` + theme textures |
 | `ragx status-icons` | status (EFST) icons + the EFST id → icon table | `icons/status/*.png` + `icons/status.json` |
 | `ragx hat-effects` | the costume effect table: hat-effect id → STR or effect id | `data/hat_effects.json` |
-| `ragx project` | complete ragnadot Godot asset/data pipeline | project runtime trees and generated tables |
+| `ragx export godot` | complete ragnadot Godot asset/data pipeline | project runtime trees and generated tables |
 
 Built for and tested against the **LATAM client** (`C:\Gravity\Ragnarok`), but
 the parsers cover every GRF/format version found in modern and classic clients.
@@ -302,13 +302,13 @@ ragx hat-effects [common options]
 ragx hat-effects -o D:/game                # → D:/game/data/hat_effects.json
 ```
 
-### `ragx project`
+### `ragx export godot`
 
 Generate every derived input used by the ragnadot Godot client from a legal
 client installation and the matching rAthena checkout:
 
 ```bash
-ragx project --client C:/Gravity/Ragnarok --project D:/ragnarok \
+ragx export godot --client C:/Gravity/Ragnarok --project D:/ragnarok \
   --rathena D:/rathena --mode lite
 ```
 

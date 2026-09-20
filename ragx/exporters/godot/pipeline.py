@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 
 
 TABLES = (
@@ -50,7 +50,7 @@ def run(args: argparse.Namespace) -> int:
         raise FileNotFoundError(f"not an rAthena checkout: {rathena}")
 
     if not args.skip_assets:
-        export = ["ragx.project.export_project", str(grf), str(project),
+        export = ["ragx.exporters.godot.export_project", str(grf), str(project),
                   "--mode", args.mode, "--processes", str(args.processes),
                   "--rathena", str(rathena)]
         if args.robrowser:
@@ -64,19 +64,19 @@ def run(args: argparse.Namespace) -> int:
     data = project / "data"
     data.mkdir(exist_ok=True)
     for label, module in TABLES:
-        command = [f"ragx.project.{module}", "--rathena", str(rathena)]
+        command = [f"ragx.exporters.godot.{module}", "--rathena", str(rathena)]
         if module == "gen_quest_names":
             command += ["--client", str(client)]
         _run(label, command, project)
 
     if args.skip_assets:
-        _run("official localization", ["ragx.project.localization_tables",
+        _run("official localization", ["ragx.exporters.godot.localization_tables",
              "--client", str(client), "--rathena", str(rathena),
              "--out", str(project)], project)
     else:
-        _run("skill scenes", ["ragx.project.gen_skill_scenes",
+        _run("skill scenes", ["ragx.exporters.godot.gen_skill_scenes",
              "--project-root", str(project)], project)
 
-    _run("server collision sync", ["ragx.project.sync_gat", "--rathena",
+    _run("server collision sync", ["ragx.exporters.godot.sync_gat", "--rathena",
          str(rathena), "--assets", str(project), "--write"], project)
     return 0

@@ -12,6 +12,7 @@ Commands
     ui               export interface bitmaps to transparent PNG
     status-icons     export status (EFST) icons and the EFST id -> icon table
     hat-effects      export the costume effect table (hat-effect id -> art)
+    export godot     build all generated inputs for the ragnadot Godot client
 
 The argument parser lives here (so ``ragx --help`` stays instant); the actual
 work is in ``ragx.commands.*`` and imported lazily once a command is chosen.
@@ -38,7 +39,7 @@ _MODULES = {
     "ui": "ragx.commands.ui_cmd",
     "status-icons": "ragx.commands.status_icons_cmd",
     "hat-effects": "ragx.commands.hat_effects_cmd",
-    "project": "ragx.project.pipeline",
+    "export:godot": "ragx.exporters.godot.pipeline",
 }
 
 
@@ -210,9 +211,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "(default: pt_BR=data, en=data\\english, es=data\\spanish, "
                         "all cp1252)")
 
-    # --- complete Godot project ------------------------------------------
-    p = sub.add_parser(
-        "project",
+    # --- engine exporters -------------------------------------------------
+    export = sub.add_parser(
+        "export",
+        help="generate a complete project for a supported engine")
+    engines = export.add_subparsers(dest="engine", metavar="<engine>", required=True)
+    p = engines.add_parser(
+        "godot",
         help="generate the complete ragnadot Godot project",
         description="Extract, convert, and generate every runtime input needed "
                     "by the ragnadot Godot client.")
@@ -259,7 +264,10 @@ def main(argv: list[str] | None = None) -> int:
                          memory_mb=args.memory_mb, reserve_mb=args.reserve_mb, timeout=args.timeout)
     if hasattr(args, 'processes'):
         args.processes = worker_limit(args.processes, args.memory_mb, args.reserve_mb)
-    module = importlib.import_module(_MODULES[args.command])
+    module_key = args.command
+    if args.command == "export":
+        module_key += ":" + args.engine
+    module = importlib.import_module(_MODULES[module_key])
     return module.run(args) or 0
 
 

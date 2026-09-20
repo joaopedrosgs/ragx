@@ -4,7 +4,7 @@ The Godot project commits only code, scenes and shaders; all sprites, effects,
 palettes, lookup tables and converted maps are .gitignored and regenerated from
 the client by this orchestrator.
 
-    ragx project --client C:/Gravity/RO --project C:/path/to/ragnarok --mode lite
+    ragx export godot --client C:/Gravity/RO --project C:/path/to/ragnarok --mode lite
 
 Modes
 -----
@@ -30,7 +30,7 @@ import sys
 import time
 from pathlib import Path
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 
 # Folders that must carry a .gdignore so Godot never imports the ~150k runtime
 # files (it loads them at runtime instead). effect_export already writes its
@@ -127,25 +127,25 @@ def main() -> None:
           f"\n  procs   : {procs}", flush=True)
 
     # 1-5: sprites, palettes, effects and the lookup/skill tables (mode-independent).
-    _run("sprite tables",  ["ragx.project.sprite_tables", "--client", client, "--out", out])
-    _run("sprite export",  ["ragx.project.sprite_export", "--all", "--processes", procs,
+    _run("sprite tables",  ["ragx.exporters.godot.sprite_tables", "--client", client, "--out", out])
+    _run("sprite export",  ["ragx.exporters.godot.sprite_export", "--all", "--processes", procs,
                             "--client", client, "--out", out])
-    _run("palette export", ["ragx.project.palette_export", "--client", client, "--out", out])
-    _run("effect export",  ["ragx.project.effect_export", "--all", "--client", client, "--out", out])
+    _run("palette export", ["ragx.exporters.godot.palette_export", "--client", client, "--out", out])
+    _run("effect export",  ["ragx.exporters.godot.effect_export", "--all", "--client", client, "--out", out])
     # The loose textures behind the client's *procedural* effects (bolts, hit
     # sparks, impact rings). No .str references them, so effect_export skips
     # them and the bolt skills end up with nothing to draw.
-    _run("effect textures", ["ragx.project.effect_texture_export", "--all",
+    _run("effect textures", ["ragx.exporters.godot.effect_texture_export", "--all",
                              "--client", client, "--out", out])
-    _run("skill tables",   ["ragx.project.skill_tables", "--client", client, "--out", out])
-    localization_args = ["ragx.project.localization_tables", "--client", client,
+    _run("skill tables",   ["ragx.exporters.godot.skill_tables", "--client", client, "--out", out])
+    localization_args = ["ragx.exporters.godot.localization_tables", "--client", client,
                          "--out", out]
     if args.english_client:
         localization_args += ["--english-client", str(args.english_client.resolve())]
     if args.rathena:
         localization_args += ["--rathena", str(args.rathena.resolve())]
     _run("localization",   localization_args)
-    _run("icon export",    ["ragx.project.icon_export", "--client", client, "--out", out])
+    _run("icon export",    ["ragx.exporters.godot.icon_export", "--client", client, "--out", out])
     # Status icons come straight from ragx (the pinned tools/vendor snapshot, or
     # RAGX_PATH): it runs the client's stateicon Lua tables and, given
     # --robrowser, fills the classic icons the client executable hardcodes.
@@ -163,13 +163,13 @@ def main() -> None:
     result = subprocess.run(hat_args, cwd=PACKAGE_ROOT, env=_subprocess_env())
     if result.returncode:
         sys.exit(f"Hat effect export failed (exit {result.returncode})")
-    _run("cursor export",  ["ragx.project.cursor_export", "--client", client, "--out", out])
-    _run("ui assets",      ["ragx.project.ui_export", "--client", client, "--out", out])
-    _run("reference UI skin", ["ragx.project.export_ui_skin", "--client", client,
+    _run("cursor export",  ["ragx.exporters.godot.cursor_export", "--client", client, "--out", out])
+    _run("ui assets",      ["ragx.exporters.godot.ui_export", "--client", client, "--out", out])
+    _run("reference UI skin", ["ragx.exporters.godot.export_ui_skin", "--client", client,
                                 "--assets", out])
 
     # 6: maps. godot_export writes terrains/models/textures/nav/maps into --assets.
-    _run("Godot maps", ["ragx.project.ragx_godot_export", *(selected_maps or []),
+    _run("Godot maps", ["ragx.exporters.godot.ragx_godot_export", *(selected_maps or []),
                          "--client", client, "--assets", out, "--processes", procs])
 
     _ensure_gdignores(project)
