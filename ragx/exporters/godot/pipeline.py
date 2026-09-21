@@ -52,7 +52,10 @@ def run(args: argparse.Namespace) -> int:
     if not args.skip_assets:
         export = ["ragx.exporters.godot.export_project", str(grf), str(project),
                   "--mode", args.mode, "--processes", str(args.processes),
-                  "--rathena", str(rathena)]
+                  "--rathena", str(rathena),
+                  "--memory-mb", str(args.memory_mb),
+                  "--reserve-mb", str(args.reserve_mb),
+                  "--timeout", str(args.timeout)]
         if args.robrowser:
             export += ["--robrowser", str(Path(args.robrowser).resolve())]
         if args.english_client:

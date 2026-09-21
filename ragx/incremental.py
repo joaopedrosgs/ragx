@@ -21,13 +21,39 @@ from typing import Callable
 _frames = contextvars.ContextVar('ragx_build_frames', default=())
 
 
+def _is_windows_sharing_error(error: PermissionError) -> bool:
+    # pathlib can expose a sharing violation as errno=EACCES without retaining
+    # winerror, depending on which CRT call raised it.
+    return os.name == 'nt' and (
+        getattr(error, 'winerror', None) in (5, 32, 33)
+        or getattr(error, 'errno', None) == 13
+    )
+
+
+def _retry_windows_sharing(operation: Callable):
+    """Retry transient sharing violations around shared build artifacts."""
+    for attempt in range(8):
+        try:
+            return operation()
+        except PermissionError as error:
+            if not _is_windows_sharing_error(error) or attempt == 7:
+                raise
+            time.sleep(0.01 * (2 ** attempt))
+
+
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
 def file_digest(path: Path) -> str:
-    with path.open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest() if hasattr(hashlib, 'file_digest') else digest(stream.read())
+    def read() -> str:
+        with path.open('rb') as stream:
+            return hashlib.file_digest(stream, 'sha256').hexdigest() if hasattr(hashlib, 'file_digest') else digest(stream.read())
+    return _retry_windows_sharing(read)
+
+
+def unlink_file(path: Path) -> None:
+    _retry_windows_sharing(lambda: path.unlink(missing_ok=True))
 
 
 def code_signature(root: Path | None = None) -> str:
@@ -44,26 +70,26 @@ def write_bytes(path: Path, data: bytes, *, record: bool = True) -> bool:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     expected = digest(data)
-    changed = not path.is_file() or file_digest(path) != expected
+    try:
+        changed = not path.is_file() or file_digest(path) != expected
+    except PermissionError as error:
+        # A different worker can keep replacing a popular shared texture long
+        # enough to exhaust read retries. Publishing our complete bytes is safe;
+        # os.replace below remains atomic and independently guarded.
+        if not _is_windows_sharing_error(error):
+            raise
+        changed = True
     if changed:
         # On Windows os.open(O_EXCL), used by mkstemp, dominated the profile.
         # A unique per-write name keeps publication atomic without that slow path.
         temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
         try:
             temporary.write_bytes(data)
-            for attempt in range(8):
-                try:
-                    os.replace(temporary, path)
-                    break
-                except PermissionError as error:
-                    # Windows denies replacement while another worker reads
-                    # the shared target. Bound retries; real publication errors
-                    # must still fail the task instead of marking it complete.
-                    if getattr(error, 'winerror', None) not in (5, 32, 33) or attempt == 7:
-                        raise
-                    time.sleep(0.01 * (2 ** attempt))
+            # Windows denies replacement while another worker reads the shared
+            # target. Bound retries; real publication errors still fail loudly.
+            _retry_windows_sharing(lambda: os.replace(temporary, path))
         finally:
-            Path(temporary).unlink(missing_ok=True)
+            unlink_file(Path(temporary))
     if record:
         for frame in _frames.get():
             relative = path.resolve().relative_to(frame['root']).as_posix()
@@ -180,7 +206,7 @@ class BuildCache:
         except (OSError, ValueError, KeyError, TypeError):
             pass
         self.builds += 1
-        path.unlink(missing_ok=True)
+        unlink_file(path)
         frame = {'root': self.root, 'dependencies': {}, 'outputs': {}}
         token = _frames.set((*_frames.get(), frame))
         try:

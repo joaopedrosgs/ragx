@@ -53,6 +53,15 @@ from pathlib import Path
 import numpy as np
 
 from ragx import mathutil as mu
+
+
+# Godot uses metres while RO map coordinates use five units per walk cell.
+WORLD_SCALE = 0.2
+_GAT_UNSET = object()
+
+
+def _scaled(point: tuple[float, float, float]) -> tuple[float, float, float]:
+    return tuple(value * WORLD_SCALE for value in point)
 from ragx.formats import rsw as rsw_format
 from ragx.grf import normalize_path
 
@@ -227,7 +236,7 @@ def _sun_matrix(light: rsw_format.LightSettings) -> mu.Matrix:
     )
 
 
-SUN_ORIGIN = mu.scaled((0.0, 300.0, 0.0))
+SUN_ORIGIN = _scaled((0.0, 300.0, 0.0))
 
 
 def _sun_transform(light: rsw_format.LightSettings) -> str:
@@ -293,20 +302,23 @@ EFFECT_FLAMES = {
 FLAME_SHADER = "res://fx/shaders/map_flame.gdshader"
 
 
-def _gat_heights(builder, map_name: str, gat_parse=None):
+def _load_gat(builder, map_name: str, gat_parse=None):
+    if gat_parse is None:
+        from ragx.formats import gat as gat_format
+        gat_parse = gat_format.parse
+    raw = builder.source.try_read(f"data\\{map_name}.gat")
+    return gat_parse(raw) if raw is not None else None
+
+
+def _gat_heights(builder, map_name: str, gat_parse=None, gat_data=_GAT_UNSET):
     """(width, height, mean-corner-height per cell) for the map's GAT, or None.
 
     Needed because the RSW gives an effect no usable Y, so the emitter has to be put
     on the ground the player walks on -- the same table `nav/<map>_gat.bin` carries.
     """
-    if gat_parse is None:
-        from ragx.formats import gat as gat_format
-        gat_parse = gat_format.parse
-
-    raw = builder.source.try_read(f"data\\{map_name}.gat")
-    if raw is None:
+    gat = _load_gat(builder, map_name, gat_parse) if gat_data is _GAT_UNSET else gat_data
+    if gat is None:
         return None
-    gat = gat_parse(raw)
     means = [(t[0] + t[1] + t[2] + t[3]) * 0.25 for t in gat.tiles]
     return (gat.width, gat.height, means)
 
@@ -324,7 +336,7 @@ def _ground_at(heights, px: float, pz: float) -> float:
     tz = int((pz + height * 2.5) / 5.0)
     if tx < 0 or tz < 0 or tx >= width or tz >= height:
         return 0.0
-    return -means[tz * width + tx] * mu.WORLD_SCALE
+    return -means[tz * width + tx] * WORLD_SCALE
 
 
 def _write_flame_strip(builder, stem: str, count: int, assets_dir: Path) -> str | None:
@@ -382,14 +394,12 @@ def _stable_png(path: Path, image) -> None:
     save_png(path, image)
 
 
-def export_map(builder, map_name: str, assets_dir: Path,
-               rsw_parse=None, gat_parse=None) -> str:
+def export_map(builder, map_name: str, assets_dir: Path, gat_parse=None) -> str:
     """Build terrains/<map>.gltf, required models/*.gltf and
     maps/<map>.tscn. Returns a summary string."""
 
-    if rsw_parse is None:
-        rsw_parse = rsw_format.parse
-    rsw = rsw_parse(builder.source.read(f"data\\{map_name}.rsw"))
+    rsw, _gnd = builder.load_map_data(map_name)
+    gat = _load_gat(builder, map_name, gat_parse)
 
     terrain_rel = f"terrains/{map_name}.gltf"
     terrain_path = assets_dir / terrain_rel
@@ -408,8 +418,8 @@ def export_map(builder, map_name: str, assets_dir: Path,
     # it cost a recast pass on every map entry and 200 MB of _nav glTF across the
     # exported set, for a region no code ever queried.
 
-    _write_gat_png(builder, map_name, assets_dir, gat_parse)
-    _write_gat_bin(builder, map_name, assets_dir, gat_parse)
+    _write_gat_png(builder, map_name, assets_dir, gat_parse, gat)
+    _write_gat_bin(builder, map_name, assets_dir, gat_parse, gat)
     _write_minimap(builder, map_name, assets_dir)
 
     # ---- model files (deduplicated on disk) -------------------------
@@ -467,7 +477,7 @@ def export_map(builder, map_name: str, assets_dir: Path,
         px, py, pz = instance.position
         rx, ry, rz = (math.radians(a) for a in instance.rotation)
         rotation = mu.mirror_z_matrix(mu.euler_rotation_matrix_zxy(rx, ry, rz))
-        origin = mu.scaled((px, -py, -pz))
+        origin = _scaled((px, -py, -pz))
         no_anim = (not animate) and (not template.is_static)
 
         instances.append({
@@ -496,7 +506,7 @@ def export_map(builder, map_name: str, assets_dir: Path,
 
     flame_res: dict[int, dict] = {}
     if flame_groups:
-        heights = _gat_heights(builder, map_name, gat_parse)
+        heights = _gat_heights(builder, map_name, gat_parse, gat)
         shader_ext = len(ext_resources)
         ext_resources.append(("Shader", FLAME_SHADER))
         for etype in sorted(flame_groups):
@@ -620,14 +630,14 @@ def export_map(builder, map_name: str, assets_dir: Path,
         lines.append("")
         lines.append(f'[node name="{name}" type="OmniLight3D" parent="."]')
         # A point light needs no basis, so write identity rather than build one.
-        lox, loy, loz = mu.scaled((lx, -ly, -lz))
+        lox, loy, loz = _scaled((lx, -ly, -lz))
         lines.append("transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, %s, %s, %s)"
                      % (_fmt(lox), _fmt(loy), _fmt(loz)))
         cr, cg, cb = light.color
         lines.append("light_color = Color(%s, %s, %s, 1)"
                      % (_fmt(min(cr, 1.0)), _fmt(min(cg, 1.0)), _fmt(min(cb, 1.0))))
         lines.append(f"light_energy = {_fmt(MAP_LIGHT_ENERGY)}")
-        lines.append(f"omni_range = {_fmt(max(light.range, 1.0) * mu.WORLD_SCALE)}")
+        lines.append(f"omni_range = {_fmt(max(light.range, 1.0) * WORLD_SCALE)}")
         used_names.add(name)
     if len(rsw.lights) > MAX_MAP_LIGHTS:
         print("  note: %s has %d light sources, exported the first %d"
@@ -650,7 +660,7 @@ def export_map(builder, map_name: str, assets_dir: Path,
         preset = info["preset"]
         for effect in flame_groups[etype]:
             ex, _ey, ez = effect.position
-            eox, _eoy, eoz = mu.scaled((ex, 0.0, -ez))
+            eox, _eoy, eoz = _scaled((ex, 0.0, -ez))
             ground = _ground_at(info["heights"], ex, ez)
             name = _node_name("Flame%d" % etype, used_names)
             lines.append("")
@@ -697,20 +707,15 @@ def export_map(builder, map_name: str, assets_dir: Path,
 
 
 def _write_gat_png(builder, map_name: str, assets_dir: Path,
-                   gat_parse=None) -> None:
+                   gat_parse=None, gat_data=_GAT_UNSET) -> None:
     """1 pixel per GAT tile, value = terrain type (0 walkable, 1 blocked,
     2 water, 3 walkable water, 4 snipable water, 5/6 cliff). Row 0 is the
     map's north edge, like the minimap."""
     from PIL import Image
 
-    if gat_parse is None:
-        from ragx.formats import gat as gat_format
-        gat_parse = gat_format.parse
-
-    raw = builder.source.try_read(f"data\\{map_name}.gat")
-    if raw is None:
+    gat = _load_gat(builder, map_name, gat_parse) if gat_data is _GAT_UNSET else gat_data
+    if gat is None:
         return
-    gat = gat_parse(raw)
     pixels = bytearray(gat.width * gat.height)
     for index, tile in enumerate(gat.tiles):
         x = index % gat.width
@@ -724,7 +729,7 @@ def _write_gat_png(builder, map_name: str, assets_dir: Path,
 
 
 def _write_gat_bin(builder, map_name: str, assets_dir: Path,
-                   gat_parse=None) -> None:
+                   gat_parse=None, gat_data=_GAT_UNSET) -> None:
     """The raw walk grid as compact binary for the client's MapGrid — the data
     the *_gat.png can't be (a picture). One record per GAT cell in NATIVE GAT
     order (cell (x, y) at index y*width + x, y=0 = south), which matches the
@@ -744,20 +749,15 @@ def _write_gat_bin(builder, map_name: str, assets_dir: Path,
     """
     import struct
 
-    if gat_parse is None:
-        from ragx.formats import gat as gat_format
-        gat_parse = gat_format.parse
-
-    raw = builder.source.try_read(f"data\\{map_name}.gat")
-    if raw is None:
+    gat = _load_gat(builder, map_name, gat_parse) if gat_data is _GAT_UNSET else gat_data
+    if gat is None:
         return
-    gat = gat_parse(raw)
     n = gat.width * gat.height
     types = bytearray(n)
     heights = bytearray(4 * n)
     for i, tile in enumerate(gat.tiles):
         types[i] = min(tile[4], 255)
-        avg = (tile[0] + tile[1] + tile[2] + tile[3]) * 0.25 * mu.WORLD_SCALE
+        avg = (tile[0] + tile[1] + tile[2] + tile[3]) * 0.25 * WORLD_SCALE
         struct.pack_into("<f", heights, i * 4, avg)
     header = b"RGAT" + struct.pack("<BBII", 1, 0, gat.width, gat.height)
     nav_dir = assets_dir / "nav"

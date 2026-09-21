@@ -77,8 +77,11 @@ def main() -> None:
                         help="Godot project root to populate")
     parser.add_argument("--mode", choices=("full", "starter", "lite"), default="starter",
                         help="map coverage (lite is an alias for starter)")
-    parser.add_argument("--processes", type=int, default=2,
-                        help="parallel workers for sprite/map export (default: 2)")
+    parser.add_argument("--processes", type=int, default=min(6, os.cpu_count() or 1),
+                        help="parallel workers for sprite/map export (default: up to 6)")
+    parser.add_argument("--memory-mb", type=int, default=6144)
+    parser.add_argument("--reserve-mb", type=int, default=2048)
+    parser.add_argument("--timeout", type=float, default=7200)
     parser.add_argument("--rathena", type=Path,
                         help="rAthena checkout (required for starter/lite map selection)")
     parser.add_argument("--english-client", type=Path,
@@ -170,7 +173,10 @@ def main() -> None:
 
     # 6: maps. godot_export writes terrains/models/textures/nav/maps into --assets.
     _run("Godot maps", ["ragx.exporters.godot.ragx_godot_export", *(selected_maps or []),
-                         "--client", client, "--assets", out, "--processes", procs])
+                         "--client", client, "--assets", out, "--processes", procs,
+                         "--memory-mb", str(args.memory_mb),
+                         "--reserve-mb", str(args.reserve_mb),
+                         "--timeout", str(args.timeout)])
 
     _ensure_gdignores(project)
 

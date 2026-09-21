@@ -465,6 +465,10 @@ ragx/
 The argument parser lives in `cli.py` so `--help` stays instant; the heavy work
 (numpy/Pillow, the builders) is imported lazily once a command is chosen.
 
+Map-export performance measurements and the scoped C++ extension proposal live
+in [`docs/native-acceleration.md`](docs/native-acceleration.md). Native work is
+gated on full-export evidence and keeps a pure-Python fallback.
+
 ## Disclaimer & Legal
 
 **This project is for educational purposes only.**
@@ -508,11 +512,13 @@ PNG writes use compression level 1 to reduce build time while preserving pixels.
 Shared SPR sheets are built once per worker group; their ACT metadata remains
 independent. Recolorable body/head sheets include an index PNG.
 
-All commands accept `--memory-mb` (4096), `--reserve-mb` (2048), and `--timeout`
+All commands accept `--memory-mb`, `--reserve-mb` (2048), and `--timeout`
 (7200 seconds). Worker counts are capped against available memory. The supervisor
 samples process-tree private memory and terminates a pressured/timed-out build;
 this is a recovery guard, not an OS allocation guarantee. Start with one or two
-workers. Map/sprite pools recycle workers after eight jobs; template/texture
+workers for the standalone family commands. The complete Godot exporter requests
+up to six workers under a 6144 MiB ceiling and scales down on smaller machines.
+Map/sprite pools recycle workers after eight jobs; template/texture
 caches evict by byte budget instead of clearing entire caches.
 
 Godot adapters may use `MapBuilder(..., cache_root=output_directory)` and the

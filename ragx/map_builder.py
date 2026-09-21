@@ -120,6 +120,17 @@ class MapBuilder:
         self.template_cache = ByteLRU(128 * 1024**2)
         self._written_textures: set[str] = set()
         self._collision_stems: set[str] | None = None
+        self._map_data_name: str | None = None
+        self._map_data: tuple[rsw_format.Rsw, gnd_format.Gnd] | None = None
+
+    def load_map_data(self, map_name: str) -> tuple[rsw_format.Rsw, gnd_format.Gnd]:
+        """Parse one map's RSW/GND pair once for adjacent export stages."""
+        if self._map_data_name != map_name or self._map_data is None:
+            rsw = rsw_format.parse(self.source.read(f"data\\{map_name}.rsw"))
+            gnd = gnd_format.parse(self._read_gnd(rsw, map_name))
+            self._map_data_name = map_name
+            self._map_data = (rsw, gnd)
+        return self._map_data
 
     # ---- texture/material helpers ------------------------------------
 
@@ -196,10 +207,8 @@ class MapBuilder:
     @cached_asset
     def build(self, map_name: str, out_path: str) -> BuildStats:
         stats = BuildStats()
-        source = self.source
 
-        rsw = rsw_format.parse(source.read(f"data\\{map_name}.rsw"))
-        gnd = gnd_format.parse(self._read_gnd(rsw, map_name))
+        rsw, gnd = self.load_map_data(map_name)
 
         external_textures = str(out_path).lower().endswith(".gltf")
         if external_textures and self.texture_dir is None:
@@ -354,8 +363,7 @@ class MapBuilder:
                            uri_base: str = "../", include_water: bool = True) -> BuildStats:
         """Terrain (+ optionally water) as one .gltf, no models/lights."""
         stats = BuildStats()
-        rsw = rsw_format.parse(self.source.read(f"data\\{map_name}.rsw"))
-        gnd = gnd_format.parse(self._read_gnd(rsw, map_name))
+        rsw, gnd = self.load_map_data(map_name)
 
         builder = GltfBuilder()
         sampler = builder.add_sampler(wrap=True)
@@ -381,8 +389,7 @@ class MapBuilder:
         the shared texture folder. Returns the water parameters (for an
         engine-side shader) or None when the map has no water."""
         stats = BuildStats()
-        rsw = rsw_format.parse(self.source.read(f"data\\{map_name}.rsw"))
-        gnd = gnd_format.parse(self._read_gnd(rsw, map_name))
+        rsw, gnd = self.load_map_data(map_name)
         planes, _grid = self._water_planes(gnd, rsw)
         if not planes:
             return None

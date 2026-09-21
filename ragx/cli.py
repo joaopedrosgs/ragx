@@ -229,13 +229,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="matching rAthena source checkout")
     p.add_argument("--mode", choices=("lite", "full"), default="lite",
                    help="lite exports the playable region; full exports every map")
-    p.add_argument("--processes", type=int, default=2,
-                   help="parallel sprite/map workers (default: 2)")
+    p.add_argument("--processes", type=int, default=min(6, os.cpu_count() or 1),
+                   help="parallel sprite/map workers (default: up to 6)")
     p.add_argument("--skip-assets", action="store_true",
                    help="regenerate tables and collision data only")
     p.add_argument("--english-client")
     p.add_argument("--robrowser")
-    p.add_argument('--memory-mb', type=int, default=4096)
+    p.add_argument('--memory-mb', type=int, default=6144)
     p.add_argument('--reserve-mb', type=int, default=2048)
     p.add_argument('--timeout', type=float, default=7200)
 

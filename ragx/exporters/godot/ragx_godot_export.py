@@ -93,14 +93,14 @@ def _map_worker(job: tuple[str, str, str, str]) -> tuple[str, str]:
 
     try:
         builder = _worker_builder(ragx_repo, client_dir, assets_dir)
-        from ragx.formats import gat, rsw
+        from ragx.formats import gat
         from ragx.exporters.godot.godot_export import export_map
 
         started = time.time()
         cache = builder.build_cache
         previous_builds = cache.builds
         summary = cache.run('godot-map:' + map_name, {'scale': WORLD_SCALE}, lambda: export_map(
-            builder, map_name, Path(assets_dir), rsw_parse=rsw.parse, gat_parse=gat.parse))
+            builder, map_name, Path(assets_dir), gat_parse=gat.parse))
         status = 'cached' if cache.builds == previous_builds else 'built'
         return map_name, f"{status} {summary} ({time.time() - started:.1f}s) cache_hits={cache.hits} builds={cache.builds}"
     except MapHasNoTerrain as error:
@@ -192,8 +192,8 @@ def main() -> int:
     parser.add_argument("--assets", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--ragx", type=Path, default=RAGX_ROOT)
     parser.add_argument("--processes", type=int,
-                        default=max(1, min(2, os.cpu_count() or 1)))
-    parser.add_argument('--memory-mb', type=int, default=4096)
+                        default=max(1, min(6, os.cpu_count() or 1)))
+    parser.add_argument('--memory-mb', type=int, default=6144)
     parser.add_argument('--reserve-mb', type=int, default=2048)
     parser.add_argument('--timeout', type=float, default=7200)
     parser.add_argument(
