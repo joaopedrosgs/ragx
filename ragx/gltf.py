@@ -241,6 +241,9 @@ class GltfBuilder:
         document = self._document()
         self._align()
         bin_bytes = bytes(self.binary)
-        document["buffers"] = [{"uri": bin_uri, "byteLength": len(bin_bytes)}]
+        # A scene graph without geometry is valid glTF. A declared zero-byte
+        # external buffer is not useful and some importers reject it.
+        if bin_bytes:
+            document["buffers"] = [{"uri": bin_uri, "byteLength": len(bin_bytes)}]
         json_bytes = json.dumps(document, ensure_ascii=False, indent=1).encode("utf-8")
         return json_bytes, bin_bytes

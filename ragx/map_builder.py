@@ -36,7 +36,6 @@ from .gltf import ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, FLOAT, UNSIGNED_BYTE, UNSI
 from .grf import normalize_path
 from .model_builder import ModelTemplate, build_template
 from .textures import LoadedTexture, convert_texture
-from .world_scale import bake_world_scale
 from .incremental import BuildCache, ByteLRU, TrackedSource, write_bytes
 
 WATER_OPACITY = 144.0 / 255.0
@@ -335,7 +334,10 @@ class MapBuilder:
 
     def _write_output(self, builder: GltfBuilder, out_path: str | os.PathLike,
                       external_textures: bool) -> None:
-        bake_world_scale(builder, self.world_scale)
+        # Geometry, node translations, animation translations and light ranges
+        # are scaled where they are built. Scaling the completed document here
+        # as well shrinks every exported glTF twice (0.2 -> 0.04 for Godot),
+        # while the map scene's RSW placements are scaled only once.
         out_path = Path(out_path)
         if external_textures:
             bin_name = out_path.stem + ".bin"
@@ -848,6 +850,12 @@ class MapBuilder:
                 "material": material_for(texture_name),
             })
 
+        # Some official maps (for example dali and ma_zif01) deliberately put
+        # the visible floor in RSW model instances and have no GND surfaces.
+        # An empty glTF mesh is invalid and Godot refuses to import the whole
+        # map dependency. Keep a named scene node, but omit the mesh entirely.
+        if not primitives:
+            return builder.add_node(name="terrain")
         mesh = builder.add_mesh(primitives, name="terrain")
         return builder.add_node(name="terrain", mesh=mesh)
 

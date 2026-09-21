@@ -1,17 +1,38 @@
 from __future__ import annotations
 
 import math
+import json
 import unittest
 
 import numpy as np
 
 from ragx import mathutil
+from ragx.formats.gnd import Cube, Gnd
+from ragx.gltf import GltfBuilder
 from ragx.formats.rsm import Face, Node
 from ragx.map_builder import AssetSource, MapBuilder, _smoothed_normals, _terrain_bucket_normals
 from ragx.model_builder import _bake_mesh, _smooth_model_normals
 
 
 class TerrainNormalTests(unittest.TestCase):
+    def test_surface_less_terrain_is_a_valid_empty_gltf_scene(self) -> None:
+        gnd = Gnd(
+            version=(1, 7), width=1, height=1, zoom=10.0,
+            textures=[], surfaces=[],
+            cubes=[Cube(0.0, 0.0, 0.0, 0.0, -1, -1, -1)],
+        )
+        builder = GltfBuilder()
+        terrain = MapBuilder(None)._build_terrain(builder, gnd, lambda _name: 0)
+        builder.add_scene_node(terrain)
+
+        document_bytes, binary = builder.to_gltf("terrain.bin")
+        document = json.loads(document_bytes)
+
+        self.assertEqual(binary, b"")
+        self.assertNotIn("buffers", document)
+        self.assertNotIn("meshes", document)
+        self.assertEqual(document["nodes"], [{"name": "terrain"}])
+
     def test_smoothing_crosses_texture_bucket_boundaries(self) -> None:
         buckets = {
             0: {

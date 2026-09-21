@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from ragx.gltf import GltfBuilder, FLOAT, ARRAY_BUFFER
+from ragx.formats.gnd import Cube, Gnd, Surface
 from ragx.map_builder import MapBuilder
 from ragx.world_scale import bake_world_scale
 
@@ -39,7 +40,7 @@ class WorldScaleTests(unittest.TestCase):
         self.assertEqual(builder.json["nodes"][0]["scale"], [2, 3, 4])
         self.assertEqual(builder.json["nodes"][1]["matrix"][12:15], [2, 4, 6])
 
-    def test_builder_writes_scaled_geometry_without_root_scale(self):
+    def test_builder_does_not_scale_completed_geometry_a_second_time(self):
         builder = GltfBuilder()
         position = builder.add_accessor(np.array([[5, 0, 0]], dtype=np.float32),
                                         "VEC3", FLOAT, ARRAY_BUFFER, minmax=True)
@@ -48,8 +49,32 @@ class WorldScaleTests(unittest.TestCase):
             path = Path(directory) / "sample.gltf"
             MapBuilder(None, world_scale=0.2)._write_output(builder, path, True)
             document = json.loads(path.read_text())
-            self.assertEqual(document["accessors"][position]["max"], [1, 0, 0])
+            self.assertEqual(document["accessors"][position]["max"], [5, 0, 0])
             self.assertEqual(document["nodes"], [])
+
+    def test_one_gat_cell_remains_one_metre_after_file_output(self):
+        surface = Surface(
+            u=(0.0, 1.0, 0.0, 1.0), v=(0.0, 0.0, 1.0, 1.0),
+            texture_index=-1, light_map_index=0,
+            color_rgba=(255, 255, 255, 255),
+        )
+        gnd = Gnd(
+            version=(1, 7), width=1, height=1, zoom=10.0,
+            textures=[], surfaces=[surface],
+            cubes=[Cube(0.0, 0.0, 0.0, 0.0, 0, -1, -1)],
+        )
+        builder = GltfBuilder()
+        map_builder = MapBuilder(None, world_scale=0.2)
+        terrain = map_builder._build_terrain(builder, gnd, lambda _name: 0)
+        builder.add_scene_node(terrain)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "terrain.gltf"
+            map_builder._write_output(builder, path, True)
+            document = json.loads(path.read_text())
+            accessor = document["accessors"][0]
+            # One GND cube is two GAT cells: 2 metres, centred at the origin.
+            self.assertEqual(accessor["min"][0], -1.0)
+            self.assertEqual(accessor["max"][0], 1.0)
 
     def test_default_is_byte_identical_and_invalid_scales_fail(self):
         builder = GltfBuilder()
