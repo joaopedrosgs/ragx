@@ -15,7 +15,7 @@ from ragx.model_builder import _bake_mesh, _smooth_model_normals
 
 
 class TerrainNormalTests(unittest.TestCase):
-    def test_surface_less_terrain_is_a_valid_empty_gltf_scene(self) -> None:
+    def test_surface_less_terrain_has_an_invisible_importable_mesh(self) -> None:
         gnd = Gnd(
             version=(1, 7), width=1, height=1, zoom=10.0,
             textures=[], surfaces=[],
@@ -28,10 +28,12 @@ class TerrainNormalTests(unittest.TestCase):
         document_bytes, binary = builder.to_gltf("terrain.bin")
         document = json.loads(document_bytes)
 
-        self.assertEqual(binary, b"")
-        self.assertNotIn("buffers", document)
-        self.assertNotIn("meshes", document)
-        self.assertEqual(document["nodes"], [{"name": "terrain"}])
+        self.assertNotEqual(binary, b"")
+        self.assertEqual(len(document["meshes"]), 1)
+        self.assertEqual(document["nodes"], [{"name": "terrain", "mesh": 0}])
+        position = document["accessors"][0]
+        self.assertEqual(position["min"], [0.0, 0.0, 0.0])
+        self.assertEqual(position["max"], [0.0, 0.0, 0.0])
 
     def test_smoothing_crosses_texture_bucket_boundaries(self) -> None:
         buckets = {

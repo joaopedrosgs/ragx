@@ -852,10 +852,25 @@ class MapBuilder:
 
         # Some official maps (for example dali and ma_zif01) deliberately put
         # the visible floor in RSW model instances and have no GND surfaces.
-        # An empty glTF mesh is invalid and Godot refuses to import the whole
-        # map dependency. Keep a named scene node, but omit the mesh entirely.
+        # Godot rejects a node-only glTF scene, even though glTF permits it. A
+        # zero-area triangle gives the importer a valid PackedScene dependency
+        # without drawing anything or changing the terrain bounds materially.
         if not primitives:
-            return builder.add_node(name="terrain")
+            positions = np.zeros((3, 3), dtype=np.float32)
+            normals = np.array([[0.0, 1.0, 0.0]] * 3, dtype=np.float32)
+            indices = np.array([0, 1, 2], dtype=np.uint32)
+            primitive = {
+                "attributes": {
+                    "POSITION": builder.add_accessor(
+                        positions, "VEC3", FLOAT, ARRAY_BUFFER, minmax=True),
+                    "NORMAL": builder.add_accessor(
+                        normals, "VEC3", FLOAT, ARRAY_BUFFER),
+                },
+                "indices": builder.add_accessor(
+                    indices, "SCALAR", UNSIGNED_INT, ELEMENT_ARRAY_BUFFER),
+            }
+            mesh = builder.add_mesh([primitive], name="terrain")
+            return builder.add_node(name="terrain", mesh=mesh)
         mesh = builder.add_mesh(primitives, name="terrain")
         return builder.add_node(name="terrain", mesh=mesh)
 
