@@ -138,6 +138,51 @@ def compose_theme(load: Loader, out: Path) -> None:
     print(f"theme: composited textures -> {dest}")
 
 
+IMAGE_SUFFIXES = (".bmp", ".tga", ".png")
+
+
+def interface_files(names, text: str = "") -> list[str]:
+    """Every interface file in the archive, as a path relative to the
+    interface root with `/` separators, filtered by a case-insensitive
+    substring. This is how a window's art is FOUND: the client names it
+    after nothing a player sees (the equipment window's take-off-all button
+    lives in `swap_equipment/`), so browsing the folder is the only way."""
+    needle = text.lower()
+    out = []
+    for key in names:
+        if not key.startswith(UI_GRF_PREFIX):
+            continue
+        rel = key[len(UI_GRF_PREFIX):].replace("\\", "/")
+        if needle in rel.lower():
+            out.append(rel)
+    return sorted(out)
+
+
+def export_folders(grf, out: Path, folders: list[str]) -> int:
+    """Export EVERY bitmap under the named interface folders, at any depth,
+    mirrored under `<out>/ui/skin/<folder>/...` and keyed like the groups.
+
+    Whole folders rather than file lists: a window's art is a folder in the
+    client (`inventory/`, `rodexsystem/renewal/`), and a hand list silently
+    loses whatever the next client build adds to it. Any depth, because
+    Gravity nests its newest windows a level further down."""
+    wanted = {f.strip("/\\").lower() for f in folders}
+    count = 0
+    for key in sorted(grf.namelist()):
+        if not key.startswith(UI_GRF_PREFIX):
+            continue
+        parts = key[len(UI_GRF_PREFIX):].split("\\")
+        if len(parts) < 2 or parts[0].lower() not in wanted:
+            continue
+        if Path(parts[-1]).suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        dest = out.joinpath("ui", "skin", *parts[:-1], Path(parts[-1]).stem + ".png")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _keyed_png(grf.read(key)).save(dest)
+        count += 1
+    return count
+
+
 def export(load: Loader, out: Path, groups: list[str]) -> None:
     for group in groups:
         dest = out / "ui" / "skin" / group
@@ -157,6 +202,24 @@ def export(load: Loader, out: Path, groups: list[str]) -> None:
 
 def run(args) -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    if getattr(args, "list", None) is not None or getattr(args, "folder", None):
+        grf = client_mod.open_stack(args.client)
+        try:
+            if args.list is not None:
+                for rel in interface_files(grf.namelist(), args.list):
+                    print(rel)
+                return 0
+            count = export_folders(grf, Path(args.out), args.folder)
+            print(f"folders {', '.join(args.folder)}: {count} written -> "
+                  f"{Path(args.out) / 'ui' / 'skin'}")
+            if count == 0:
+                print("  no interface bitmaps under those folders "
+                      "(`ragx ui --list <text>` to find one)")
+                return 1
+        finally:
+            grf.close()
+        return 0
 
     groups = args.groups or list(GROUPS)
     unknown = [g for g in groups if g not in GROUPS]

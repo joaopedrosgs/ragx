@@ -72,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  ragx sprites --all -j 8\n"
             "  ragx effects lord stormgust\n"
             "  ragx ui --skin \"America Latina\"\n"
+            "  ragx ui --list equip\n"
+            "  ragx ui --folder swap_equipment --folder inventory\n"
         ),
     )
     parser.add_argument("--version", action="version",
@@ -174,6 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "of the base interface")
     p.add_argument("--groups", nargs="*", metavar="GROUP", default=None,
                    help="limit to specific interface groups (default: all)")
+    p.add_argument("--folder", action="append", metavar="NAME", default=None,
+                   help="export EVERY bitmap under an interface folder, at any "
+                        "depth (repeatable), instead of the built-in groups")
+    p.add_argument("--list", nargs="?", const="", default=None, metavar="TEXT",
+                   help="list interface files whose path contains TEXT, and exit")
 
     sub.add_parser("sounds", parents=[common],
                    help="export all sound effects to PCM WAV under audio/sfx")
