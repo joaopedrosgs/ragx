@@ -38,6 +38,7 @@ _MODULES = {
     "ui": "ragx.commands.ui_cmd",
     "status-icons": "ragx.commands.status_icons_cmd",
     "hat-effects": "ragx.commands.hat_effects_cmd",
+    "navigation": "ragx.commands.navigation_cmd",
 }
 
 
@@ -194,6 +195,21 @@ def build_parser() -> argparse.ArgumentParser:
                     "server sends in ZC_EQUIPMENT_EFFECT, the STR (named as the "
                     "effects command exports it) or effect-table id the client "
                     "draws, with its offsets and ordering flags. Needs lupa.")
+
+    # --- navigation -------------------------------------------------------
+    p = sub.add_parser(
+        "navigation", parents=[common],
+        help="export the Navigation window's map, NPC and monster tables",
+        description="Read navi_map/navi_npc/navi_mob and write "
+                    "<out>/data/navigation.json. Prefer --navi-dir, the folder "
+                    "rAthena's `map-server-generator --generate-navi` writes: it "
+                    "describes the server's own NPCs and spawns with plain names. "
+                    "The client's copies obfuscate NPC and monster names, which "
+                    "are then left empty. Needs lupa.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--navi-dir", metavar="DIR", default=None,
+                   help="rAthena's generated navigation folder "
+                        "(generated/clientside/data/luafiles514/lua files/navigation)")
 
     # --- status-icons -----------------------------------------------------
     p = sub.add_parser(
