@@ -70,6 +70,12 @@ class GltfBuilder:
                      minmax: bool = False) -> int:
         components = _TYPE_COMPONENTS[accessor_type]
         flat = np.ascontiguousarray(array)
+        # glTF supports 16-bit element indices. Small surfaces must not pay
+        # four bytes per index just because the source builder uses uint32.
+        if (target == ELEMENT_ARRAY_BUFFER and component_type == UNSIGNED_INT
+                and flat.size and int(flat.max()) < 65535):
+            flat = flat.astype(np.uint16)
+            component_type = UNSIGNED_SHORT
         count = flat.size // components
         view = self.add_buffer_view(flat.tobytes(), target)
         accessor: dict[str, Any] = {

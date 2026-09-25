@@ -339,7 +339,7 @@ class MapBuilder:
         # as well shrinks every exported glTF twice (0.2 -> 0.04 for Godot),
         # while the map scene's RSW placements are scaled only once.
         out_path = Path(out_path)
-        if external_textures:
+        if external_textures and out_path.suffix.lower() != ".glb":
             bin_name = out_path.stem + ".bin"
             json_bytes, bin_bytes = builder.to_gltf(urllib.parse.quote(bin_name))
             _atomic_write(out_path.with_name(bin_name), bin_bytes)
@@ -836,6 +836,18 @@ class MapBuilder:
             uvs = np.asarray(bucket["uvs"], dtype=np.float32)
             colors = np.asarray(bucket["colors"], dtype=np.uint8)
             normals = normals_by_texture[texture_index]
+
+            # Weld only byte-identical vertices AFTER smoothing. Position-only
+            # welding would destroy UV seams, vertex colours and hard normals.
+            attributes_bytes = np.concatenate([
+                np.ascontiguousarray(a).view(np.uint8).reshape(len(positions), -1)
+                for a in (positions, normals, uvs, colors)
+            ], axis=1)
+            _, first, inverse = np.unique(attributes_bytes, axis=0,
+                                          return_index=True, return_inverse=True)
+            positions, normals, uvs, colors = (
+                a[first] for a in (positions, normals, uvs, colors))
+            indices = inverse[indices].astype(np.uint32)
 
             attributes = {
                 "POSITION": builder.add_accessor(positions, "VEC3", FLOAT, ARRAY_BUFFER, minmax=True),

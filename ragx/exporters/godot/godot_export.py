@@ -401,7 +401,7 @@ def export_map(builder, map_name: str, assets_dir: Path, gat_parse=None) -> str:
     rsw, _gnd = builder.load_map_data(map_name)
     gat = _load_gat(builder, map_name, gat_parse)
 
-    terrain_rel = f"terrains/{map_name}.gltf"
+    terrain_rel = f"terrains/{map_name}.glb"
     terrain_path = assets_dir / terrain_rel
     terrain_path.parent.mkdir(exist_ok=True)
     stats = builder.build_terrain_gltf(map_name, terrain_path, uri_base="../",
@@ -409,7 +409,7 @@ def export_map(builder, map_name: str, assets_dir: Path, gat_parse=None) -> str:
 
     # Water in its own file: the map script drives it with the original
     # wave/cycling parameters through water.gdshader.
-    water_rel = f"terrains/{map_name}_water.gltf"
+    water_rel = f"terrains/{map_name}_water.glb"
     water_info = builder.build_water_gltf(map_name, assets_dir / water_rel, uri_base="../")
 
     # No navigation mesh. It existed to bake a NavigationRegion3D into the scene,
@@ -457,7 +457,7 @@ def export_map(builder, map_name: str, assets_dir: Path, gat_parse=None) -> str:
             suffix += f"@s{effective_speed:.3f}"
         if mirrored:
             suffix += "@mirror"
-        model_rel = f"models/{key}{suffix}.gltf"
+        model_rel = f"models/{key}{suffix}.glb"
         model_path = assets_dir / model_rel
         if f"res://{model_rel}" not in ext_ids and (
                 getattr(builder, 'build_cache', None) is not None or not model_path.exists()):

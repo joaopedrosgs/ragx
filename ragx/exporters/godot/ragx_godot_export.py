@@ -114,8 +114,8 @@ _MODEL_SUFFIX = re.compile(r"@s(?P<speed>[0-9]+(?:\.[0-9]+)?)$")
 
 def _model_spec(relative_path: str) -> tuple[str, float, bool]:
     """Recover the RSM name and variant settings encoded by godot_export."""
-    stem = relative_path[:-5] if relative_path.lower().endswith(".gltf") \
-        else relative_path
+    suffix = Path(relative_path).suffix.lower()
+    stem = relative_path[:-len(suffix)] if suffix in (".gltf", ".glb") else relative_path
     mirrored = stem.endswith("@mirror")
     if mirrored:
         stem = stem[:-len("@mirror")]
@@ -181,7 +181,7 @@ def _model_paths(assets_dir: Path) -> list[str]:
     models_dir = assets_dir / "models"
     return sorted(
         path.relative_to(models_dir).as_posix()
-        for path in models_dir.rglob("*.gltf")
+        for path in models_dir.rglob("*") if path.suffix.lower() in (".gltf", ".glb")
     ) if models_dir.is_dir() else []
 
 
