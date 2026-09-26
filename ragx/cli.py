@@ -39,6 +39,7 @@ _MODULES = {
     "status-icons": "ragx.commands.status_icons_cmd",
     "hat-effects": "ragx.commands.hat_effects_cmd",
     "navigation": "ragx.commands.navigation_cmd",
+    "override": "ragx.commands.override_cmd",
 }
 
 
@@ -75,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  ragx ui --skin \"America Latina\"\n"
             "  ragx ui --list equip\n"
             "  ragx ui --folder swap_equipment --folder inventory\n"
+            "  ragx override 몬스터/poring --dest content/mob/1002\n"
         ),
     )
     parser.add_argument("--version", action="version",
@@ -231,6 +233,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a language root for the tooltip text, repeatable "
                         "(default: pt_BR=data, en=data\\english, es=data\\spanish, "
                         "all cp1252)")
+
+    # --- override ---------------------------------------------------------
+    p = sub.add_parser(
+        "override", parents=[common],
+        help="extract one sprite's visual into editable files (authored Override)",
+        description="Copy ONE sprite's complete visual out of the GRF into a new "
+                    "folder: every SPR frame as a PNG, the ACT as animation.json, "
+                    "the WAVs its frame events play, and provenance.json with the "
+                    "source fingerprints. Refuses to overwrite an existing folder "
+                    "and never leaves a partial one.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("sprite", metavar="SPRITE",
+                   help="sprite path under data/sprite/ without extension "
+                        "(e.g. 몬스터/poring)")
+    p.add_argument("--dest", metavar="DIR", required=True,
+                   help="the new folder to create (e.g. content/mob/1002)")
 
     return parser
 
