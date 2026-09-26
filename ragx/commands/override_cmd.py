@@ -121,10 +121,58 @@ def extract(reader, sprite: str, dest: Path) -> dict:
             "missing_sounds": missing}
 
 
+MAGENTA = (255, 0, 255)
+
+
+def extract_image(reader, entry: str, dest: Path) -> dict:
+    """Write one image entry (a BMP icon/illustration, a TGA status icon) as an
+    editable RGBA PNG at ``dest`` plus ``<dest>.provenance.json``. Magenta is
+    keyed to transparent where the image has no alpha, as the client and the
+    icon exporter do. Never overwrites."""
+    import io
+
+    from PIL import Image
+
+    dest = Path(dest)
+    sidecar = dest.with_name(dest.name + ".provenance.json")
+    if dest.exists() or sidecar.exists():
+        raise FileExistsError(f"{dest} already exists; refusing to overwrite")
+    name = normalize_path(entry)
+    if name not in reader:
+        raise FileNotFoundError(name)
+    image = Image.open(io.BytesIO(reader.read(name)))
+    had_alpha = "A" in image.getbands()
+    image = image.convert("RGBA")
+    if not had_alpha:
+        pixels = image.load()
+        width, height = image.size
+        for y in range(height):
+            for x in range(width):
+                if pixels[x, y][:3] == MAGENTA:
+                    pixels[x, y] = (0, 0, 0, 0)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    stage = dest.with_name(dest.name + ".staging-%d.png" % os.getpid())
+    try:
+        image.save(stage)
+        provenance = {"format": FORMAT, "ragx": __version__, "entry": name,
+                      "fingerprint": reader.fingerprint(name) if hasattr(reader, "fingerprint") else None,
+                      "created": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+        sidecar.write_text(json.dumps(provenance, ensure_ascii=False, indent=1), encoding="utf-8")
+        stage.rename(dest)
+    except BaseException:
+        stage.unlink(missing_ok=True)
+        sidecar.unlink(missing_ok=True)
+        raise
+    return {"dest": str(dest), "size": list(image.size)}
+
+
 def run(args) -> int:
     with client_mod.open_stack(args.client) as stack:
         try:
-            result = extract(stack, args.sprite, Path(args.dest))
+            if args.command == "override-image":
+                result = extract_image(stack, args.entry, Path(args.dest))
+            else:
+                result = extract(stack, args.sprite, Path(args.dest))
         except (FileExistsError, FileNotFoundError) as error:
             print("override: %s" % error, file=sys.stderr)
             return 1

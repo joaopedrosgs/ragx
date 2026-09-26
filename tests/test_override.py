@@ -99,5 +99,36 @@ class OverrideTests(unittest.TestCase):
             self.assertEqual(result['missing_sounds'], ['slime.wav'])
 
 
+class OverrideImageTests(unittest.TestCase):
+    def bmp(self):
+        import io
+        image = Image.new('RGB', (2, 1))
+        image.putpixel((0, 0), (255, 0, 255))
+        image.putpixel((1, 0), (10, 20, 30))
+        out = io.BytesIO()
+        image.save(out, format='BMP')
+        return out.getvalue()
+
+    def test_bmp_is_keyed_and_recorded(self):
+        reader = Reader({r'data\texture\icon.bmp': self.bmp()})
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / 'item_icon' / '501.png'
+            override_cmd.extract_image(reader, 'data/texture/icon.bmp', dest)
+            pixels = Image.open(dest).convert('RGBA')
+            self.assertEqual(pixels.getpixel((0, 0))[3], 0)
+            self.assertEqual(pixels.getpixel((1, 0)), (10, 20, 30, 255))
+            sidecar = json.loads(dest.with_name('501.png.provenance.json').read_text(encoding='utf-8'))
+            self.assertEqual(sidecar['entry'], r'data\texture\icon.bmp')
+
+    def test_image_never_overwrites(self):
+        reader = Reader({r'data\texture\icon.bmp': self.bmp()})
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / '501.png'
+            dest.write_bytes(b'painted')
+            with self.assertRaises(FileExistsError):
+                override_cmd.extract_image(reader, 'data/texture/icon.bmp', dest)
+            self.assertEqual(dest.read_bytes(), b'painted')
+
+
 if __name__ == '__main__':
     unittest.main()

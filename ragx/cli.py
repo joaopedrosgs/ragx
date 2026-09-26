@@ -40,6 +40,7 @@ _MODULES = {
     "hat-effects": "ragx.commands.hat_effects_cmd",
     "navigation": "ragx.commands.navigation_cmd",
     "override": "ragx.commands.override_cmd",
+    "override-image": "ragx.commands.override_cmd",
 }
 
 
@@ -249,6 +250,19 @@ def build_parser() -> argparse.ArgumentParser:
                         "(e.g. 몬스터/poring)")
     p.add_argument("--dest", metavar="DIR", required=True,
                    help="the new folder to create (e.g. content/mob/1002)")
+
+    # --- override-image ----------------------------------------------------
+    p = sub.add_parser(
+        "override-image", parents=[common],
+        help="extract one image (item icon, illustration, status icon) as an editable PNG",
+        description="Copy ONE image entry out of the GRF as an RGBA PNG (magenta keyed "
+                    "to transparent where it has no alpha) plus <dest>.provenance.json. "
+                    "Refuses to overwrite.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("entry", metavar="ENTRY",
+                   help="GRF entry, e.g. data/texture/유저인터페이스/item/빨간포션.bmp")
+    p.add_argument("--dest", metavar="FILE", required=True,
+                   help="the PNG to create (e.g. content/item_icon/501.png)")
 
     return parser
 
