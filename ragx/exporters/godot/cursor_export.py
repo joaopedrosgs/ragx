@@ -91,8 +91,8 @@ def main() -> None:
 	parser.add_argument("--out", required=True, help="Godot project root")
 	args = parser.parse_args()
 
-	grf = GrfStack([str(Path(args.client) / "data.grf"),
-					str(Path(args.client) / "event.grf")])
+	grf = GrfStack([str(Path(args.client) / "event.grf"),
+					str(Path(args.client) / "data.grf")])
 	act = actfmt.parse(grf.read("data\\sprite\\cursors.act"))
 	spr = sprfmt.parse(grf.read("data\\sprite\\cursors.spr"))
 

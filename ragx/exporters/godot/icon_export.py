@@ -175,8 +175,8 @@ def main() -> None:
     icons_dir = Path(args.out) / "icons"
     data_dir = Path(args.out) / "data"
 
-    grf = GrfStack([str(Path(client) / "data.grf"),
-                    str(Path(client) / "event.grf")])
+    grf = GrfStack([str(Path(client) / "event.grf"),
+                    str(Path(client) / "data.grf")])
 
     item_icons = export_set(grf, "item", icons_dir)
     if not args.no_collection:

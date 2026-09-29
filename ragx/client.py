@@ -1,8 +1,8 @@
 """Locating and opening a Ragnarok Online client's GRF archives.
 
 Every command works directly from the client install — there is no separate
-"extract" step. A client directory contains the main ``data.grf`` and may layer
-extra archives (``event.grf``) on top, exactly as the game does.
+"extract" step. A client directory contains the main ``data.grf`` and may ship
+extra archives (``event.grf``) underneath it, exactly as the game draws them.
 """
 
 from __future__ import annotations
@@ -16,9 +16,10 @@ from .grf import GrfArchive, GrfStack
 DEFAULT_CLIENT = r"C:\Gravity\Ragnarok"
 
 MAIN_GRF = "data.grf"
-# Extra archives the client layers on top of data.grf (higher priority), used
-# only if present. The sprite/effect data lives in data.grf; event.grf carries
-# a few overrides.
+# Extra archives the client layers UNDER data.grf (lower priority), used only if
+# present. LATAM's event.grf is a 2010 seasonal pack: all 31 of its files also
+# exist in data.grf (older Prontera, Izlude, Geffen, Alberta, Aldebaran, Hugel,
+# prt_church, xmas), and the game draws the data.grf versions.
 EXTRA_GRFS = ("event.grf",)
 
 
@@ -43,18 +44,14 @@ def open_archive(client: str | os.PathLike) -> GrfArchive:
 
 
 def open_stack(client: str | os.PathLike) -> GrfStack:
-    """Open ``data.grf`` plus any extra archives the client layers on top."""
-    paths = [_require_main(client)]
-    for extra in EXTRA_GRFS:
-        candidate = Path(client) / extra
-        if candidate.is_file():
-            paths.append(candidate)
+    """Open ``data.grf`` over any extra archives the client ships with it."""
+    extras = [Path(client) / extra for extra in EXTRA_GRFS]
+    paths = [p for p in extras if p.is_file()] + [_require_main(client)]
     return GrfStack(paths)
 
 
 def client_grf_paths(client: str | os.PathLike) -> list[str]:
     """Return the archive stack paths in the same precedence order as open_stack."""
-    paths = [_require_main(client)]
-    paths.extend(Path(client) / extra for extra in EXTRA_GRFS
-                 if (Path(client) / extra).is_file())
+    extras = [Path(client) / extra for extra in EXTRA_GRFS]
+    paths = [p for p in extras if p.is_file()] + [_require_main(client)]
     return [str(path) for path in paths]

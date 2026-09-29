@@ -91,7 +91,7 @@ def main() -> int:
     args = ap.parse_args()
 
     client = Path(args.client)
-    grf = GrfStack([str(client / "data.grf"), str(client / "event.grf")])
+    grf = GrfStack([str(client / "event.grf"), str(client / "data.grf")])
 
     dest = Path(args.out) / "audio" / "sfx"
     dest.mkdir(parents=True, exist_ok=True)
